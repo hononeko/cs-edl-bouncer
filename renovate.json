@@ -1,0 +1,54 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(chore)",
+    "mergeConfidence:all-badges",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "minimumReleaseAge": "3 days",
+  "dependencyDashboard": true,
+  "timezone": "Europe/Chisinau",
+  "rebaseWhen": "behind-base-branch",
+  "labels": [
+    "renovate",
+    "dependencies"
+  ],
+  "automergeType": "pr",
+  "prHeader": "## 🤖 Renovate: Dependency Maintenance",
+  "packageRules": [
+    {
+      "description": "Bump Go version in go.mod and group it",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang"],
+      "rangeStrategy": "bump",
+      "groupName": "Go"
+    },
+    {
+      "description": "Group Dockerfile Go base image updates",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": [
+        "golang",
+        "library/golang",
+        "docker.io/library/golang"
+      ],
+      "matchDepNames": [
+        "golang",
+        "library/golang",
+        "docker.io/library/golang"
+      ],
+      "groupName": "Go"
+    },
+    {
+      "description": "Group GitHub Actions setup-go Go version updates",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["go", "actions/go-versions"],
+      "matchDepNames": ["go", "actions/go-versions"],
+      "groupName": "Go"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+coverage.out
+.golangci.yml
+renovate.json
