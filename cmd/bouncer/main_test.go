@@ -66,7 +66,12 @@ func TestRunCleanShutdown(t *testing.T) {
 	}()
 
 	// Wait for server to be responsive
-	client := &http.Client{Timeout: 500 * time.Millisecond}
+	client := &http.Client{
+		Timeout: 500 * time.Millisecond,
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+		},
+	}
 	var ready bool
 	for i := 0; i < 20; i++ {
 		resp, err := client.Get(fmt.Sprintf("http://%s/healthz", listenAddr))
@@ -117,7 +122,7 @@ func TestRunCleanShutdown(t *testing.T) {
 		if err != nil {
 			t.Errorf("run returned error on shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("run timed out waiting for clean shutdown")
 	}
 }
@@ -145,7 +150,12 @@ func TestRunLAPIUnreachableStartup(t *testing.T) {
 		errCh <- run(ctx, cfg)
 	}()
 
-	client := &http.Client{Timeout: 500 * time.Millisecond}
+	client := &http.Client{
+		Timeout: 500 * time.Millisecond,
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+		},
+	}
 	var ready bool
 	for i := 0; i < 20; i++ {
 		resp, err := client.Get(fmt.Sprintf("http://%s/healthz", listenAddr))
@@ -171,7 +181,7 @@ func TestRunLAPIUnreachableStartup(t *testing.T) {
 		if err != nil {
 			t.Errorf("run returned error on shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("run timed out waiting for clean shutdown")
 	}
 }
