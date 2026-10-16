@@ -11,3 +11,7 @@ linters:
     - staticcheck
     - unused
     - gosec
+    - dupl
+  settings:
+    dupl:
+      threshold: 100

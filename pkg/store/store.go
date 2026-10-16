@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"net/netip"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -169,72 +168,13 @@ func (s *Store) recomputeLocked() {
 		}
 	}
 
-	var ipv4Entries []string
-	var ipv6Entries []string
-
-	if s.aggregateCIDR {
-		agg4 := cidr.Aggregate(ipv4Prefixes)
-		ipv4Entries = make([]string, len(agg4))
-		for i, p := range agg4 {
-			ipv4Entries[i] = cidr.FormatPrefix(p)
-		}
-
-		agg6 := cidr.Aggregate(ipv6Prefixes)
-		ipv6Entries = make([]string, len(agg6))
-		for i, p := range agg6 {
-			ipv6Entries[i] = cidr.FormatPrefix(p)
-		}
-	} else {
-		ipv4Sorted := deduplicateAndSort(ipv4Prefixes)
-		ipv4Entries = make([]string, len(ipv4Sorted))
-		for i, p := range ipv4Sorted {
-			ipv4Entries[i] = cidr.FormatPrefix(p)
-		}
-
-		ipv6Sorted := deduplicateAndSort(ipv6Prefixes)
-		ipv6Entries = make([]string, len(ipv6Sorted))
-		for i, p := range ipv6Sorted {
-			ipv6Entries[i] = cidr.FormatPrefix(p)
-		}
-	}
+	ipv4Entries := cidr.FormatEntries(ipv4Prefixes, s.aggregateCIDR)
+	ipv6Entries := cidr.FormatEntries(ipv6Prefixes, s.aggregateCIDR)
 
 	s.renderedShards = make(map[string][]byte)
 
-	// Shard IPv4
-	numIPv4Shards := (len(ipv4Entries) + s.shardSize - 1) / s.shardSize
-	if numIPv4Shards < s.minIPv4Shards {
-		numIPv4Shards = s.minIPv4Shards
-	}
-	for i := 0; i < numIPv4Shards; i++ {
-		start := i * s.shardSize
-		end := start + s.shardSize
-		if start > len(ipv4Entries) {
-			start = len(ipv4Entries)
-		}
-		if end > len(ipv4Entries) {
-			end = len(ipv4Entries)
-		}
-		shardEntries := ipv4Entries[start:end]
-		s.renderedShards[fmt.Sprintf("ipv4-%d.txt", i)] = renderList("shard", shardEntries)
-	}
-
-	// Shard IPv6
-	numIPv6Shards := (len(ipv6Entries) + s.shardSize - 1) / s.shardSize
-	if numIPv6Shards < s.minIPv6Shards {
-		numIPv6Shards = s.minIPv6Shards
-	}
-	for i := 0; i < numIPv6Shards; i++ {
-		start := i * s.shardSize
-		end := start + s.shardSize
-		if start > len(ipv6Entries) {
-			start = len(ipv6Entries)
-		}
-		if end > len(ipv6Entries) {
-			end = len(ipv6Entries)
-		}
-		shardEntries := ipv6Entries[start:end]
-		s.renderedShards[fmt.Sprintf("ipv6-%d.txt", i)] = renderList("shard", shardEntries)
-	}
+	numIPv4Shards := s.renderShardsLocked("ipv4", ipv4Entries, s.minIPv4Shards)
+	numIPv6Shards := s.renderShardsLocked("ipv6", ipv6Entries, s.minIPv6Shards)
 
 	// Combined lists
 	s.renderedShards["ipv4.txt"] = renderList("IPv4", ipv4Entries)
@@ -253,29 +193,14 @@ func (s *Store) recomputeLocked() {
 	s.metrics.IPv6Shards = int64(numIPv6Shards)
 }
 
-func deduplicateAndSort(prefixes []netip.Prefix) []netip.Prefix {
-	if len(prefixes) == 0 {
-		return nil
+func (s *Store) renderShardsLocked(prefix string, entries []string, minShards int) int {
+	numShards := max((len(entries)+s.shardSize-1)/s.shardSize, minShards)
+	for i := range numShards {
+		start := min(i*s.shardSize, len(entries))
+		end := min((i+1)*s.shardSize, len(entries))
+		s.renderedShards[fmt.Sprintf("%s-%d.txt", prefix, i)] = renderList("shard", entries[start:end])
 	}
-	list := make([]netip.Prefix, len(prefixes))
-	for i, p := range prefixes {
-		list[i] = p.Masked()
-	}
-	sort.Slice(list, func(i, j int) bool {
-		cmp := list[i].Addr().Compare(list[j].Addr())
-		if cmp != 0 {
-			return cmp < 0
-		}
-		return list[i].Bits() < list[j].Bits()
-	})
-	out := make([]netip.Prefix, 0, len(list))
-	for _, p := range list {
-		if len(out) > 0 && out[len(out)-1] == p {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
+	return numShards
 }
 
 func renderList(name string, entries []string) []byte {

@@ -21,19 +21,36 @@ func setupTestServer() *Server {
 	return New(st)
 }
 
+func assertGET(t *testing.T, handler http.Handler, path string, wantStatus int, wantContains, wantNotContains []string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != wantStatus {
+		t.Fatalf("%s returned status %d, expected %d", path, rec.Code, wantStatus)
+	}
+	body := rec.Body.String()
+	for _, s := range wantContains {
+		if !strings.Contains(body, s) {
+			t.Errorf("%s response missing %q:\n%s", path, s, body)
+		}
+	}
+	for _, s := range wantNotContains {
+		if strings.Contains(body, s) {
+			t.Errorf("%s response unexpectedly contains %q:\n%s", path, s, body)
+		}
+	}
+	return rec
+}
+
 func TestHealthEndpoints(t *testing.T) {
 	srv := setupTestServer()
 	handler := srv.Handler()
 
 	paths := []string{"/healthz", "/readyz", "/"}
 	for _, p := range paths {
-		req := httptest.NewRequest(http.MethodGet, p, nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s returned status %d, expected 200", p, rec.Code)
-		}
+		assertGET(t, handler, p, http.StatusOK, nil, nil)
 	}
 }
 
@@ -41,116 +58,85 @@ func TestListsEndpoint(t *testing.T) {
 	srv := setupTestServer()
 	handler := srv.Handler()
 
-	t.Run("serve existing shard", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/lists/ipv4-0.txt", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+	tests := []struct {
+		name         string
+		path         string
+		wantStatus   int
+		wantContains []string
+	}{
+		{
+			name:         "serve existing shard",
+			path:         "/lists/ipv4-0.txt",
+			wantStatus:   http.StatusOK,
+			wantContains: []string{"10.0.0.1"},
+		},
+		{
+			name:         "serve combined list",
+			path:         "/lists/all.txt",
+			wantStatus:   http.StatusOK,
+			wantContains: []string{"10.0.0.1", "2001:db8::1"},
+		},
+		{
+			name:       "unknown shard returns 404",
+			path:       "/lists/nonexistent.txt",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "path traversal attempt returns 404",
+			path:       "/lists/..%2fpasswd",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		if !strings.Contains(rec.Body.String(), "10.0.0.1") {
-			t.Errorf("expected 10.0.0.1 in response, got %s", rec.Body.String())
-		}
-		if !strings.Contains(rec.Header().Get("Content-Type"), "text/plain") {
-			t.Errorf("expected text/plain Content-Type, got %s", rec.Header().Get("Content-Type"))
-		}
-	})
-
-	t.Run("serve combined list", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/lists/all.txt", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		body := rec.Body.String()
-		if !strings.Contains(body, "10.0.0.1") || !strings.Contains(body, "2001:db8::1") {
-			t.Errorf("expected both IPs in all.txt, got %s", body)
-		}
-	})
-
-	t.Run("unknown shard returns 404", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/lists/nonexistent.txt", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("expected 404, got %d", rec.Code)
-		}
-	})
-
-	t.Run("path traversal attempt returns 404", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/lists/..%2fpasswd", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusNotFound && rec.Code != http.StatusBadRequest {
-			t.Fatalf("expected 404 or 400 for path traversal, got %d", rec.Code)
-		}
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := assertGET(t, handler, tc.path, tc.wantStatus, tc.wantContains, nil)
+			if tc.wantStatus == http.StatusOK && !strings.Contains(rec.Header().Get("Content-Type"), "text/plain") {
+				t.Errorf("expected text/plain Content-Type, got %s", rec.Header().Get("Content-Type"))
+			}
+		})
+	}
 }
 
 func TestSecurityBlocklistEndpoint(t *testing.T) {
 	srv := setupTestServer()
 	handler := srv.Handler()
 
-	t.Run("default serves all.txt", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/security/blocklist.txt", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+	tests := []struct {
+		name            string
+		path            string
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:         "default serves all.txt",
+			path:         "/security/blocklist.txt",
+			wantContains: []string{"10.0.0.1", "2001:db8::1"},
+		},
+		{
+			name:            "ipv4only param serves ipv4.txt",
+			path:            "/security/blocklist.txt?ipv4only",
+			wantContains:    []string{"10.0.0.1"},
+			wantNotContains: []string{"2001:db8::1"},
+		},
+		{
+			name:            "ipv6only param serves ipv6.txt",
+			path:            "/security/blocklist.txt?ipv6only",
+			wantContains:    []string{"2001:db8::1"},
+			wantNotContains: []string{"10.0.0.1"},
+		},
+	}
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		body := rec.Body.String()
-		if !strings.Contains(body, "10.0.0.1") || !strings.Contains(body, "2001:db8::1") {
-			t.Errorf("expected both IPs in blocklist.txt, got %s", body)
-		}
-	})
-
-	t.Run("ipv4only param serves ipv4.txt", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/security/blocklist.txt?ipv4only", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		body := rec.Body.String()
-		if !strings.Contains(body, "10.0.0.1") || strings.Contains(body, "2001:db8::1") {
-			t.Errorf("expected only IPv4 in blocklist.txt?ipv4only, got %s", body)
-		}
-	})
-
-	t.Run("ipv6only param serves ipv6.txt", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/security/blocklist.txt?ipv6only", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		body := rec.Body.String()
-		if strings.Contains(body, "10.0.0.1") || !strings.Contains(body, "2001:db8::1") {
-			t.Errorf("expected only IPv6 in blocklist.txt?ipv6only, got %s", body)
-		}
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertGET(t, handler, tc.path, http.StatusOK, tc.wantContains, tc.wantNotContains)
+		})
+	}
 }
 
 func TestMetricsEndpoint(t *testing.T) {
 	srv := setupTestServer()
 	handler := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	body := rec.Body.String()
 
 	requiredMetrics := []string{
 		"cs_edl_decisions_raw 2",
@@ -163,9 +149,8 @@ func TestMetricsEndpoint(t *testing.T) {
 		"cs_edl_last_sync_timestamp_seconds",
 	}
 
-	for _, metric := range requiredMetrics {
-		if !strings.Contains(body, metric) {
-			t.Errorf("expected metric %q in /metrics output:\n%s", metric, body)
-		}
+	rec := assertGET(t, handler, "/metrics", http.StatusOK, requiredMetrics, nil)
+	if !strings.Contains(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Errorf("expected text/plain Content-Type, got %s", rec.Header().Get("Content-Type"))
 	}
 }
