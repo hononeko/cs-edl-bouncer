@@ -20,7 +20,7 @@ func assertStreamRequest(t *testing.T, r *http.Request) {
 
 	expectedHeaders := map[string]string{
 		"X-Api-Key":  "secret-api-key",
-		"User-Agent": "cs-edl-bouncer/1.0.0",
+		"User-Agent": "cs-edl-bouncer/dev",
 		"Accept":     "application/json",
 	}
 	for k, v := range expectedHeaders {

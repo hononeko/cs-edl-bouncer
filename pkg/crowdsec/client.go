@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hononeko/cs-edl-bouncer/pkg/version"
 )
 
 // Decision represents a single decision returned by the CrowdSec LAPI stream.
@@ -71,7 +73,7 @@ func (c *Client) GetStream(ctx context.Context, startup bool) (*StreamResponse, 
 	}
 
 	req.Header.Set("X-Api-Key", c.apiKey)
-	req.Header.Set("User-Agent", "cs-edl-bouncer/1.0.0")
+	req.Header.Set("User-Agent", "cs-edl-bouncer/"+version.Version)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
