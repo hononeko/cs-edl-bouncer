@@ -14,6 +14,7 @@ import (
 	"github.com/hononeko/cs-edl-bouncer/pkg/crowdsec"
 	"github.com/hononeko/cs-edl-bouncer/pkg/server"
 	"github.com/hononeko/cs-edl-bouncer/pkg/store"
+	"github.com/hononeko/cs-edl-bouncer/pkg/unifi"
 	"github.com/hononeko/cs-edl-bouncer/pkg/version"
 )
 
@@ -21,14 +22,36 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("FATAL: failed to load configuration: %v", err)
+	if err := runCLI(ctx, os.Args); err != nil {
+		log.Fatalf("FATAL: %v", err)
+	}
+}
+
+func runCLI(ctx context.Context, args []string) error {
+	if len(args) > 1 {
+		switch args[1] {
+		case "unifi-sync":
+			if err := unifi.RunSync(ctx); err != nil {
+				return fmt.Errorf("unifi sync failed: %w", err)
+			}
+			return nil
+		case "version", "-v", "--version":
+			fmt.Printf("cs-edl-bouncer %s\n", version.Version)
+			return nil
+		case "help", "-h", "--help":
+			fmt.Print("Usage: cs-edl-bouncer [command]\n\nCommands:\n  (none)      Run CrowdSec EDL HTTP bouncer server\n  unifi-sync  Reconcile UniFi EDL groups and zone firewall rules\n  version     Print version\n")
+			return nil
+		default:
+			return fmt.Errorf("unknown command %q", args[1])
+		}
 	}
 
-	if err := run(ctx, cfg); err != nil {
-		log.Fatalf("FATAL: application error: %v", err)
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+
+	return run(ctx, cfg)
 }
 
 func run(ctx context.Context, cfg *config.Config) error {

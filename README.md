@@ -179,6 +179,44 @@ cs_edl_last_sync_timestamp_seconds 1776345600
 
 ---
 
+## UniFi Gateway Reconciliation (`unifi-sync`)
+
+`cs-edl-bouncer` includes a built-in subcommand to declaratively provision, update, and self-heal External Dynamic Lists (EDLs) and Zone-Based Firewall (ZBF) rules on UniFi Cloud Gateways (e.g. UCG-Fiber, UCG-Max, UDM-Pro) running UniFi Network Application 9+ / 11+.
+
+```bash
+# Run reconciliation once
+cs-edl-bouncer unifi-sync
+```
+
+### How It Works
+
+1. **Dynamic Zone Discovery:** Resolves zone names (`External`, `Internal`, `Gateway`, `IoT`, etc.) to gateway UUIDs dynamically via `/proxy/network/v2/api/site/{site}/firewall/zone`—no hardcoded IDs.
+2. **EDL Group Management:** Reconciles dynamic address groups (`CrowdSec-EDL-IPv4-0` .. `N`, `CrowdSec-EDL-IPv6-0` .. `M`) pointing to shard URLs with configurable polling intervals.
+3. **Zone-Based Firewall Rules:** Creates stateful block rules across all source and destination zone pairings (`CrowdSec-EDL-<family>-<src>-><dst>-<shard>`).
+4. **Precedence Batch Reordering:** Sorts rules and posts them to `firewall-policies/batch-reorder` so EDL drop rules sit in top precedence (`index: 10000+` before predefined policies).
+5. **Self-Healing & Drift Detection:** Detects changes to URLs, polling intervals, rule states, or group references and repairs them idempotently.
+6. **Legacy Cleanup:** Setting `PRUNE_LEGACY=true` safely purges obsolete `cs-unifi-bouncer-*` groups and legacy static block policies.
+
+### UniFi Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `UNIFI_HOST` | `https://10.10.1.1` | UniFi gateway controller URL. |
+| `UNIFI_API_KEY` | *(Required)* | UniFi API Key created in Gateway Settings > System > Advanced > API Keys. |
+| `UNIFI_SITE` | `default` | UniFi site name. |
+| `UNIFI_SKIP_TLS_VERIFY` | `true` | Skip TLS certificate verification for local gateway addresses. |
+| `UNIFI_ZONE_SRC` | `External` | Comma- or space-separated list of source firewall zones. |
+| `UNIFI_ZONE_DST` | `Internal, Gateway, Vpn, Hotspot, Dmz, IoT, HomeLab` | Comma- or space-separated list of destination firewall zones. |
+| `EDL_BASE_URL` | `https://blocklist.kerrlab.app/lists` | Public or internal base URL where `cs-edl-bouncer` serves shards. |
+| `EDL_IPV4_SHARDS` | `3` | Number of IPv4 shards to subscribe on the gateway. |
+| `EDL_IPV6_SHARDS` | `1` | Number of IPv6 shards to subscribe on the gateway. |
+| `EDL_UPDATE_INTERVAL_SECONDS` | `3600` | Gateway EDL polling frequency in seconds (default 1 hour). |
+| `EDL_RULE_ACTION` | `BLOCK` | Firewall policy action (`BLOCK` or `DROP`). |
+| `EDL_RULE_STATES` | `NEW, INVALID` | Connection states to block (`NEW`, `INVALID`, `ESTABLISHED`, `RELATED`). |
+| `PRUNE_LEGACY` | `false` | When `true`, prunes legacy `cs-unifi-bouncer-*` policies and groups. |
+
+---
+
 ## Development & Testing
 
 ```bash
