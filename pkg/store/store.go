@@ -133,6 +133,14 @@ func (s *Store) RecordSyncFailure() {
 	s.metrics.SyncFailureTotal++
 }
 
+// Ready reports whether at least one LAPI sync has succeeded. Until then the shards
+// are empty placeholders and must not replace lists served by a previous instance.
+func (s *Store) Ready() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.metrics.SyncSuccessTotal > 0
+}
+
 // GetShard retrieves pre-rendered shard content by name (e.g. "ipv4-0.txt", "all.txt").
 func (s *Store) GetShard(name string) ([]byte, bool) {
 	s.mu.RLock()
