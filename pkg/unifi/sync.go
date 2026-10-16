@@ -19,26 +19,20 @@ type targetShard struct {
 
 func buildTargetShards(baseURL string, ipv4Count, ipv6Count int) []targetShard {
 	shards := make([]targetShard, 0, ipv4Count+ipv6Count)
-	for i := 0; i < ipv4Count; i++ {
-		shards = append(shards, targetShard{
-			Name:       fmt.Sprintf("CrowdSec-EDL-IPv4-%d", i),
-			GroupType:  "address-group",
-			URL:        fmt.Sprintf("%s/ipv4-%d.txt", baseURL, i),
-			IPVersion:  "IPV4",
-			Family:     "ipv4",
-			ShardIndex: i,
-		})
+	addShards := func(count int, namePrefix, family, ipVersion, groupType string) {
+		for i := 0; i < count; i++ {
+			shards = append(shards, targetShard{
+				Name:       fmt.Sprintf("CrowdSec-EDL-%s-%d", namePrefix, i),
+				GroupType:  groupType,
+				URL:        fmt.Sprintf("%s/%s-%d.txt", baseURL, family, i),
+				IPVersion:  ipVersion,
+				Family:     family,
+				ShardIndex: i,
+			})
+		}
 	}
-	for i := 0; i < ipv6Count; i++ {
-		shards = append(shards, targetShard{
-			Name:       fmt.Sprintf("CrowdSec-EDL-IPv6-%d", i),
-			GroupType:  "ipv6-address-group",
-			URL:        fmt.Sprintf("%s/ipv6-%d.txt", baseURL, i),
-			IPVersion:  "IPV6",
-			Family:     "ipv6",
-			ShardIndex: i,
-		})
-	}
+	addShards(ipv4Count, "IPv4", "ipv4", "IPV4", "address-group")
+	addShards(ipv6Count, "IPv6", "ipv6", "IPV6", "ipv6-address-group")
 	return shards
 }
 

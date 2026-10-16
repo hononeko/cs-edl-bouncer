@@ -153,8 +153,8 @@ func TestBuildTargetShards(t *testing.T) {
 	}
 }
 
-func TestReconcileCreationAndIdempotency(t *testing.T) {
-	state := &mockUniFiState{
+func newTestState() *mockUniFiState {
+	return &mockUniFiState{
 		zones: []Zone{
 			{ID: "zone-ext", Name: "External"},
 			{ID: "zone-int", Name: "Internal"},
@@ -162,26 +162,32 @@ func TestReconcileCreationAndIdempotency(t *testing.T) {
 		groups:   make(map[string]FirewallGroup),
 		policies: make(map[string]FirewallZonePolicy),
 	}
+}
 
-	server := newMockUniFiServer(state)
-	defer server.Close()
-
-	cfg := &Config{
-		Host:               server.URL,
+func newTestConfig(serverURL string, ipv4Shards, ipv6Shards int) *Config {
+	return &Config{
+		Host:               serverURL,
 		APIKey:             "test-key",
 		Site:               "default",
 		SkipTLSVerify:      true,
 		ZoneSrc:            []string{"External"},
 		ZoneDst:            []string{"Internal"},
 		BaseURL:            "https://blocklist.test/lists",
-		IPv4Shards:         2,
-		IPv6Shards:         1,
+		IPv4Shards:         ipv4Shards,
+		IPv6Shards:         ipv6Shards,
 		UpdateIntervalSecs: 3600,
 		RuleAction:         "BLOCK",
 		RuleStates:         []string{"NEW", "INVALID"},
 		PruneLegacy:        false,
 	}
+}
 
+func TestReconcileCreationAndIdempotency(t *testing.T) {
+	state := newTestState()
+	server := newMockUniFiServer(state)
+	defer server.Close()
+
+	cfg := newTestConfig(server.URL, 2, 1)
 	client := NewClient(cfg, nil)
 	ctx := context.Background()
 
@@ -223,33 +229,11 @@ func TestReconcileCreationAndIdempotency(t *testing.T) {
 }
 
 func TestReconcileDriftHealing(t *testing.T) {
-	state := &mockUniFiState{
-		zones: []Zone{
-			{ID: "zone-ext", Name: "External"},
-			{ID: "zone-int", Name: "Internal"},
-		},
-		groups:   make(map[string]FirewallGroup),
-		policies: make(map[string]FirewallZonePolicy),
-	}
-
+	state := newTestState()
 	server := newMockUniFiServer(state)
 	defer server.Close()
 
-	cfg := &Config{
-		Host:               server.URL,
-		APIKey:             "test-key",
-		Site:               "default",
-		SkipTLSVerify:      true,
-		ZoneSrc:            []string{"External"},
-		ZoneDst:            []string{"Internal"},
-		BaseURL:            "https://blocklist.test/lists",
-		IPv4Shards:         1,
-		IPv6Shards:         0,
-		UpdateIntervalSecs: 3600,
-		RuleAction:         "BLOCK",
-		RuleStates:         []string{"NEW", "INVALID"},
-	}
-
+	cfg := newTestConfig(server.URL, 1, 0)
 	client := NewClient(cfg, nil)
 	ctx := context.Background()
 
@@ -286,47 +270,25 @@ func TestReconcileDriftHealing(t *testing.T) {
 }
 
 func TestReconcileLegacyPruning(t *testing.T) {
-	state := &mockUniFiState{
-		zones: []Zone{
-			{ID: "zone-ext", Name: "External"},
-			{ID: "zone-int", Name: "Internal"},
-		},
-		groups: map[string]FirewallGroup{
-			"legacy-grp": {
-				ID:   "legacy-grp",
-				Name: "cs-unifi-bouncer-ipv4",
-			},
-		},
-		policies: map[string]FirewallZonePolicy{
-			"legacy-pol": {
-				ID:   "legacy-pol",
-				Name: "cs-unifi-bouncer-rule",
-			},
-			"legacy-static": {
-				ID:   "797c809c-5e49-4a4b-9952-e3db1c462dd0",
-				Name: "Block CrowdSec Reported Threats",
-			},
-		},
+	state := newTestState()
+	state.groups["legacy-grp"] = FirewallGroup{
+		ID:   "legacy-grp",
+		Name: "cs-unifi-bouncer-ipv4",
+	}
+	state.policies["legacy-pol"] = FirewallZonePolicy{
+		ID:   "legacy-pol",
+		Name: "cs-unifi-bouncer-rule",
+	}
+	state.policies["legacy-static"] = FirewallZonePolicy{
+		ID:   "797c809c-5e49-4a4b-9952-e3db1c462dd0",
+		Name: "Block CrowdSec Reported Threats",
 	}
 
 	server := newMockUniFiServer(state)
 	defer server.Close()
 
-	cfg := &Config{
-		Host:               server.URL,
-		APIKey:             "test-key",
-		Site:               "default",
-		SkipTLSVerify:      true,
-		ZoneSrc:            []string{"External"},
-		ZoneDst:            []string{"Internal"},
-		BaseURL:            "https://blocklist.test/lists",
-		IPv4Shards:         1,
-		IPv6Shards:         0,
-		UpdateIntervalSecs: 3600,
-		RuleAction:         "BLOCK",
-		RuleStates:         []string{"NEW", "INVALID"},
-		PruneLegacy:        true,
-	}
+	cfg := newTestConfig(server.URL, 1, 0)
+	cfg.PruneLegacy = true
 
 	client := NewClient(cfg, nil)
 	ctx := context.Background()
@@ -345,9 +307,7 @@ func TestReconcileLegacyPruning(t *testing.T) {
 
 func TestReconcileMissingZones(t *testing.T) {
 	state := &mockUniFiState{
-		zones: []Zone{
-			{ID: "zone-ext", Name: "External"},
-		},
+		zones:    []Zone{{ID: "zone-ext", Name: "External"}},
 		groups:   make(map[string]FirewallGroup),
 		policies: make(map[string]FirewallZonePolicy),
 	}
@@ -355,17 +315,8 @@ func TestReconcileMissingZones(t *testing.T) {
 	server := newMockUniFiServer(state)
 	defer server.Close()
 
-	cfg := &Config{
-		Host:          server.URL,
-		APIKey:        "test-key",
-		Site:          "default",
-		ZoneSrc:       []string{"External"},
-		ZoneDst:       []string{"NonExistentZone"},
-		BaseURL:       "https://blocklist.test/lists",
-		IPv4Shards:    1,
-		IPv6Shards:    0,
-		SkipTLSVerify: true,
-	}
+	cfg := newTestConfig(server.URL, 1, 0)
+	cfg.ZoneDst = []string{"NonExistentZone"}
 
 	client := NewClient(cfg, nil)
 	err := Reconcile(context.Background(), client, cfg)
@@ -378,15 +329,7 @@ func TestReconcileMissingZones(t *testing.T) {
 }
 
 func TestRunSync(t *testing.T) {
-	state := &mockUniFiState{
-		zones: []Zone{
-			{ID: "zone-ext", Name: "External"},
-			{ID: "zone-int", Name: "Internal"},
-		},
-		groups:   make(map[string]FirewallGroup),
-		policies: make(map[string]FirewallZonePolicy),
-	}
-
+	state := newTestState()
 	server := newMockUniFiServer(state)
 	defer server.Close()
 
