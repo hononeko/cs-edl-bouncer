@@ -8,6 +8,12 @@ import (
 	"github.com/hononeko/cs-edl-bouncer/pkg/store"
 )
 
+const (
+	headerContentType     = "Content-Type"
+	contentTypeTextPlain  = "text/plain; charset=utf-8"
+	contentTypePrometheus = "text/plain; version=0.0.4; charset=utf-8"
+)
+
 // Server handles HTTP requests for EDL shards, health probes, and metrics.
 type Server struct {
 	store *store.Store
@@ -40,7 +46,7 @@ func (s *Server) registerRoutes() {
 
 func textHandler(body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set(headerContentType, contentTypeTextPlain)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(body))
 	}
@@ -53,7 +59,7 @@ func (s *Server) serveShard(w http.ResponseWriter, r *http.Request, name string)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set(headerContentType, contentTypeTextPlain)
 	w.WriteHeader(http.StatusOK)
 	// #nosec G705 -- served content is plain-text IP/CIDR blocklists
 	_, _ = w.Write(data)
@@ -103,7 +109,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n%s %d\n", metric.name, metric.help, metric.name, metric.mType, metric.name, metric.val)
 	}
 
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.Header().Set(headerContentType, contentTypePrometheus)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(b.String()))
 }

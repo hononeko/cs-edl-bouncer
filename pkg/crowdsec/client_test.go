@@ -9,6 +9,39 @@ import (
 	"testing"
 )
 
+func assertStreamRequest(t *testing.T, r *http.Request) {
+	t.Helper()
+	if r.Method != http.MethodGet {
+		t.Errorf("expected GET, got %s", r.Method)
+	}
+	if r.URL.Path != "/v1/decisions/stream" {
+		t.Errorf("expected /v1/decisions/stream, got %s", r.URL.Path)
+	}
+
+	expectedHeaders := map[string]string{
+		"X-Api-Key":  "secret-api-key",
+		"User-Agent": "cs-edl-bouncer/1.0.0",
+		"Accept":     "application/json",
+	}
+	for k, v := range expectedHeaders {
+		if got := r.Header.Get(k); got != v {
+			t.Errorf("expected header %s=%s, got %s", k, v, got)
+		}
+	}
+
+	q := r.URL.Query()
+	expectedQuery := map[string]string{
+		"startup": "true",
+		"scopes":  "ip,range",
+		"origins": "crowdsec,lists",
+	}
+	for k, v := range expectedQuery {
+		if got := q.Get(k); got != v {
+			t.Errorf("expected query %s=%s, got %s", k, v, got)
+		}
+	}
+}
+
 func TestGetStreamSuccess(t *testing.T) {
 	expectedNew := []Decision{
 		{
@@ -30,33 +63,7 @@ func TestGetStreamSuccess(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("expected GET, got %s", r.Method)
-		}
-		if r.URL.Path != "/v1/decisions/stream" {
-			t.Errorf("expected /v1/decisions/stream, got %s", r.URL.Path)
-		}
-		if r.Header.Get("X-Api-Key") != "secret-api-key" {
-			t.Errorf("expected X-Api-Key secret-api-key, got %s", r.Header.Get("X-Api-Key"))
-		}
-		if r.Header.Get("User-Agent") != "cs-edl-bouncer/1.0.0" {
-			t.Errorf("expected User-Agent cs-edl-bouncer/1.0.0, got %s", r.Header.Get("User-Agent"))
-		}
-		if r.Header.Get("Accept") != "application/json" {
-			t.Errorf("expected Accept application/json, got %s", r.Header.Get("Accept"))
-		}
-
-		q := r.URL.Query()
-		if q.Get("startup") != "true" {
-			t.Errorf("expected startup=true, got %s", q.Get("startup"))
-		}
-		if q.Get("scopes") != "ip,range" {
-			t.Errorf("expected scopes=ip,range, got %s", q.Get("scopes"))
-		}
-		if q.Get("origins") != "crowdsec,lists" {
-			t.Errorf("expected origins=crowdsec,lists, got %s", q.Get("origins"))
-		}
-
+		assertStreamRequest(t, r)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(StreamResponse{
 			New:     expectedNew,

@@ -41,48 +41,32 @@ func LoadFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 		AggregateCIDR:  true,
 	}
 
-	if val, ok := lookup("CROWDSEC_URL"); ok && strings.TrimSpace(val) != "" {
-		cfg.CrowdSecURL = strings.TrimRight(strings.TrimSpace(val), "/")
+	if val, ok := lookupTrimmed(lookup, "CROWDSEC_URL"); ok {
+		cfg.CrowdSecURL = strings.TrimRight(val, "/")
 	}
 
-	apiKey, ok := lookup("CROWDSEC_API_KEY")
-	if !ok || strings.TrimSpace(apiKey) == "" {
-		apiKey, ok = lookup("BOUNCER_API_KEY")
+	apiKey, err := parseAPIKey(lookup)
+	if err != nil {
+		return nil, err
 	}
-	if !ok || strings.TrimSpace(apiKey) == "" {
-		return nil, fmt.Errorf("CROWDSEC_API_KEY (or BOUNCER_API_KEY) is required")
-	}
-	cfg.APIKey = strings.TrimSpace(apiKey)
+	cfg.APIKey = apiKey
 
-	if val, ok := lookup("CROWDSEC_UPDATE_INTERVAL"); ok && strings.TrimSpace(val) != "" {
-		val = strings.TrimSpace(val)
-		d, err := time.ParseDuration(val)
-		if err != nil {
-			sec, secErr := strconv.Atoi(val)
-			if secErr != nil {
-				return nil, fmt.Errorf("invalid CROWDSEC_UPDATE_INTERVAL %q: %w", val, err)
-			}
-			d = time.Duration(sec) * time.Second
-		}
-		if d <= 0 {
-			return nil, fmt.Errorf("CROWDSEC_UPDATE_INTERVAL must be greater than 0")
-		}
-		cfg.UpdateInterval = d
+	if err := parseUpdateInterval(lookup, &cfg.UpdateInterval); err != nil {
+		return nil, err
 	}
 
-	if val, ok := lookup("CROWDSEC_ORIGINS"); ok && strings.TrimSpace(val) != "" {
+	if val, ok := lookupTrimmed(lookup, "CROWDSEC_ORIGINS"); ok {
 		cfg.Origins = splitList(val, false)
 	}
 
-	if val, ok := lookup("CROWDSEC_DECISION_TYPES"); ok && strings.TrimSpace(val) != "" {
-		types := splitList(val, true)
-		if len(types) > 0 {
+	if val, ok := lookupTrimmed(lookup, "CROWDSEC_DECISION_TYPES"); ok {
+		if types := splitList(val, true); len(types) > 0 {
 			cfg.DecisionTypes = types
 		}
 	}
 
-	if val, ok := lookup("LISTEN_ADDR"); ok && strings.TrimSpace(val) != "" {
-		cfg.ListenAddr = strings.TrimSpace(val)
+	if val, ok := lookupTrimmed(lookup, "LISTEN_ADDR"); ok {
+		cfg.ListenAddr = val
 	}
 
 	if err := parseIntMin(lookup, "EDL_SHARD_SIZE", 1, &cfg.ShardSize); err != nil {
@@ -95,25 +79,75 @@ func LoadFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 		return nil, err
 	}
 
-	if val, ok := lookup("EDL_AGGREGATE_CIDR"); ok && strings.TrimSpace(val) != "" {
-		b, err := strconv.ParseBool(strings.TrimSpace(val))
-		if err != nil {
-			return nil, fmt.Errorf("invalid EDL_AGGREGATE_CIDR %q: %w", val, err)
-		}
-		cfg.AggregateCIDR = b
+	if err := parseBoolEnv(lookup, "EDL_AGGREGATE_CIDR", &cfg.AggregateCIDR); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
 }
 
-func parseIntMin(lookup func(string) (string, bool), key string, minVal int, dest *int) error {
-	if val, ok := lookup(key); ok && strings.TrimSpace(val) != "" {
-		v, err := strconv.Atoi(strings.TrimSpace(val))
-		if err != nil || v < minVal {
-			return fmt.Errorf("invalid %s %q: must be integer >= %d", key, val, minVal)
+func lookupTrimmed(lookup func(string) (string, bool), key string) (string, bool) {
+	if val, ok := lookup(key); ok {
+		if trimmed := strings.TrimSpace(val); trimmed != "" {
+			return trimmed, true
 		}
-		*dest = v
 	}
+	return "", false
+}
+
+func parseAPIKey(lookup func(string) (string, bool)) (string, error) {
+	if val, ok := lookupTrimmed(lookup, "CROWDSEC_API_KEY"); ok {
+		return val, nil
+	}
+	if val, ok := lookupTrimmed(lookup, "BOUNCER_API_KEY"); ok {
+		return val, nil
+	}
+	return "", fmt.Errorf("CROWDSEC_API_KEY (or BOUNCER_API_KEY) is required")
+}
+
+func parseUpdateInterval(lookup func(string) (string, bool), dest *time.Duration) error {
+	val, ok := lookupTrimmed(lookup, "CROWDSEC_UPDATE_INTERVAL")
+	if !ok {
+		return nil
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		sec, secErr := strconv.Atoi(val)
+		if secErr != nil {
+			return fmt.Errorf("invalid CROWDSEC_UPDATE_INTERVAL %q: %w", val, err)
+		}
+		d = time.Duration(sec) * time.Second
+	}
+	if d <= 0 {
+		return fmt.Errorf("CROWDSEC_UPDATE_INTERVAL must be greater than 0")
+	}
+	*dest = d
+	return nil
+}
+
+func parseBoolEnv(lookup func(string) (string, bool), key string, dest *bool) error {
+	val, ok := lookupTrimmed(lookup, key)
+	if !ok {
+		return nil
+	}
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", key, val, err)
+	}
+	*dest = b
+	return nil
+}
+
+func parseIntMin(lookup func(string) (string, bool), key string, minVal int, dest *int) error {
+	val, ok := lookupTrimmed(lookup, key)
+	if !ok {
+		return nil
+	}
+	v, err := strconv.Atoi(val)
+	if err != nil || v < minVal {
+		return fmt.Errorf("invalid %s %q: must be integer >= %d", key, val, minVal)
+	}
+	*dest = v
 	return nil
 }
 
