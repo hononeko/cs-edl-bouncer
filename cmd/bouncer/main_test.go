@@ -153,3 +153,34 @@ func TestRunLAPIUnreachableStartup(t *testing.T) {
 
 	assertCleanShutdown(t, cancel, errCh)
 }
+
+func TestRunCLI(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("version", func(t *testing.T) {
+		if err := runCLI(ctx, []string{"bouncer", "version"}); err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("help", func(t *testing.T) {
+		if err := runCLI(ctx, []string{"bouncer", "--help"}); err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("unknown_command", func(t *testing.T) {
+		err := runCLI(ctx, []string{"bouncer", "unknown-cmd"})
+		if err == nil || !strings.Contains(err.Error(), "unknown command") {
+			t.Errorf("expected unknown command error, got %v", err)
+		}
+	})
+
+	t.Run("unifi_sync_missing_env", func(t *testing.T) {
+		err := runCLI(ctx, []string{"bouncer", "unifi-sync"})
+		if err == nil || !strings.Contains(err.Error(), "UNIFI_API_KEY is required") {
+			t.Errorf("expected missing UNIFI_API_KEY error, got %v", err)
+		}
+	})
+}
+
