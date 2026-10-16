@@ -29,6 +29,50 @@ func getFreePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+func startTestServer(t *testing.T, cfg *config.Config) (context.CancelFunc, <-chan error, *http.Client) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cfg)
+	}()
+
+	client := &http.Client{
+		Timeout: 500 * time.Millisecond,
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+		},
+	}
+
+	for range 20 {
+		resp, err := client.Get(fmt.Sprintf("http://%s/healthz", cfg.ListenAddr))
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return cancel, errCh, client
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cancel()
+	t.Fatalf("server failed to start listening on %s", cfg.ListenAddr)
+	return nil, nil, nil
+}
+
+func assertCleanShutdown(t *testing.T, cancel context.CancelFunc, errCh <-chan error) {
+	t.Helper()
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("run returned error on shutdown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("run timed out waiting for clean shutdown")
+	}
+}
+
 func TestRunCleanShutdown(t *testing.T) {
 	var syncCount atomic.Int32
 
@@ -58,37 +102,8 @@ func TestRunCleanShutdown(t *testing.T) {
 		AggregateCIDR:  true,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- run(ctx, cfg)
-	}()
-
-	// Wait for server to be responsive
-	client := &http.Client{
-		Timeout: 500 * time.Millisecond,
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-		},
-	}
-	var ready bool
-	for i := 0; i < 20; i++ {
-		resp, err := client.Get(fmt.Sprintf("http://%s/healthz", listenAddr))
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				ready = true
-				break
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	if !ready {
-		cancel()
-		t.Fatalf("server failed to start listening on %s", listenAddr)
-	}
+	cancel, errCh, client := startTestServer(t, cfg)
+	defer cancel()
 
 	// Verify shard endpoint responds
 	resp, err := client.Get(fmt.Sprintf("http://%s/lists/ipv4-0.txt", listenAddr))
@@ -103,7 +118,7 @@ func TestRunCleanShutdown(t *testing.T) {
 	}
 
 	// Wait for sync to happen
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if syncCount.Load() > 0 {
 			break
 		}
@@ -114,17 +129,7 @@ func TestRunCleanShutdown(t *testing.T) {
 		t.Errorf("expected at least one LAPI sync, got 0")
 	}
 
-	// Trigger shutdown
-	cancel()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Errorf("run returned error on shutdown: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("run timed out waiting for clean shutdown")
-	}
+	assertCleanShutdown(t, cancel, errCh)
 }
 
 func TestRunLAPIUnreachableStartup(t *testing.T) {
@@ -143,45 +148,8 @@ func TestRunLAPIUnreachableStartup(t *testing.T) {
 		AggregateCIDR:  true,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	cancel, errCh, _ := startTestServer(t, cfg)
+	defer cancel()
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- run(ctx, cfg)
-	}()
-
-	client := &http.Client{
-		Timeout: 500 * time.Millisecond,
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-		},
-	}
-	var ready bool
-	for i := 0; i < 20; i++ {
-		resp, err := client.Get(fmt.Sprintf("http://%s/healthz", listenAddr))
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				ready = true
-				break
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	if !ready {
-		cancel()
-		t.Fatalf("server failed to start listening even when LAPI unreachable")
-	}
-
-	cancel()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Errorf("run returned error on shutdown: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("run timed out waiting for clean shutdown")
-	}
+	assertCleanShutdown(t, cancel, errCh)
 }

@@ -1,9 +1,10 @@
 package cidr
 
 import (
+	"cmp"
 	"fmt"
 	"net/netip"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -45,28 +46,48 @@ func ParsePrefix(raw string) (netip.Prefix, error) {
 	return netip.PrefixFrom(addr, bits).Masked(), nil
 }
 
-// Aggregate sorts prefixes deterministically, removes duplicates and sub-prefixes,
-// and merges adjacent sibling prefixes of equal bit length into their supernet,
-// cascading backwards across the stack.
-func Aggregate(prefixes []netip.Prefix) []netip.Prefix {
+// sortMaskedPrefixes returns a masked, deterministically sorted copy of prefixes.
+func sortMaskedPrefixes(prefixes []netip.Prefix) []netip.Prefix {
 	if len(prefixes) == 0 {
 		return nil
 	}
-
-	// Make a masked copy
 	list := make([]netip.Prefix, len(prefixes))
 	for i, p := range prefixes {
 		list[i] = p.Masked()
 	}
-
-	// Deterministic sort: Address ascending, shorter prefix first
-	sort.Slice(list, func(i, j int) bool {
-		cmp := list[i].Addr().Compare(list[j].Addr())
-		if cmp != 0 {
-			return cmp < 0
+	slices.SortFunc(list, func(a, b netip.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
 		}
-		return list[i].Bits() < list[j].Bits()
+		return cmp.Compare(a.Bits(), b.Bits())
 	})
+	return list
+}
+
+// Deduplicate masks, sorts deterministically, and removes exact duplicates without subnet aggregation.
+func Deduplicate(prefixes []netip.Prefix) []netip.Prefix {
+	list := sortMaskedPrefixes(prefixes)
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]netip.Prefix, 0, len(list))
+	for _, p := range list {
+		if len(out) > 0 && out[len(out)-1] == p {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// Aggregate sorts prefixes deterministically, removes duplicates and sub-prefixes,
+// and merges adjacent sibling prefixes of equal bit length into their supernet,
+// cascading backwards across the stack.
+func Aggregate(prefixes []netip.Prefix) []netip.Prefix {
+	list := sortMaskedPrefixes(prefixes)
+	if len(list) == 0 {
+		return nil
+	}
 
 	var stack []netip.Prefix
 
@@ -116,4 +137,20 @@ func FormatPrefix(p netip.Prefix) string {
 		return p.Addr().String()
 	}
 	return p.String()
+}
+
+// FormatEntries processes raw prefixes (aggregating or deduplicating based on the flag)
+// and returns formatted string entries.
+func FormatEntries(prefixes []netip.Prefix, aggregate bool) []string {
+	var processed []netip.Prefix
+	if aggregate {
+		processed = Aggregate(prefixes)
+	} else {
+		processed = Deduplicate(prefixes)
+	}
+	entries := make([]string, len(processed))
+	for i, p := range processed {
+		entries[i] = FormatPrefix(p)
+	}
+	return entries
 }

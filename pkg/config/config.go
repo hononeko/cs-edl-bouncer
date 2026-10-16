@@ -85,28 +85,14 @@ func LoadFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 		cfg.ListenAddr = strings.TrimSpace(val)
 	}
 
-	if val, ok := lookup("EDL_SHARD_SIZE"); ok && strings.TrimSpace(val) != "" {
-		sz, err := strconv.Atoi(strings.TrimSpace(val))
-		if err != nil || sz <= 0 {
-			return nil, fmt.Errorf("invalid EDL_SHARD_SIZE %q: must be integer > 0", val)
-		}
-		cfg.ShardSize = sz
+	if err := parseIntMin(lookup, "EDL_SHARD_SIZE", 1, &cfg.ShardSize); err != nil {
+		return nil, err
 	}
-
-	if val, ok := lookup("EDL_MIN_IPV4_SHARDS"); ok && strings.TrimSpace(val) != "" {
-		v, err := strconv.Atoi(strings.TrimSpace(val))
-		if err != nil || v < 1 {
-			return nil, fmt.Errorf("invalid EDL_MIN_IPV4_SHARDS %q: must be integer >= 1", val)
-		}
-		cfg.MinIPv4Shards = v
+	if err := parseIntMin(lookup, "EDL_MIN_IPV4_SHARDS", 1, &cfg.MinIPv4Shards); err != nil {
+		return nil, err
 	}
-
-	if val, ok := lookup("EDL_MIN_IPV6_SHARDS"); ok && strings.TrimSpace(val) != "" {
-		v, err := strconv.Atoi(strings.TrimSpace(val))
-		if err != nil || v < 1 {
-			return nil, fmt.Errorf("invalid EDL_MIN_IPV6_SHARDS %q: must be integer >= 1", val)
-		}
-		cfg.MinIPv6Shards = v
+	if err := parseIntMin(lookup, "EDL_MIN_IPV6_SHARDS", 1, &cfg.MinIPv6Shards); err != nil {
+		return nil, err
 	}
 
 	if val, ok := lookup("EDL_AGGREGATE_CIDR"); ok && strings.TrimSpace(val) != "" {
@@ -118,6 +104,17 @@ func LoadFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseIntMin(lookup func(string) (string, bool), key string, minVal int, dest *int) error {
+	if val, ok := lookup(key); ok && strings.TrimSpace(val) != "" {
+		v, err := strconv.Atoi(strings.TrimSpace(val))
+		if err != nil || v < minVal {
+			return fmt.Errorf("invalid %s %q: must be integer >= %d", key, val, minVal)
+		}
+		*dest = v
+	}
+	return nil
 }
 
 func splitList(val string, toLower bool) []string {
