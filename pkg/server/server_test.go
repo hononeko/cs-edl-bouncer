@@ -11,7 +11,7 @@ import (
 )
 
 func setupTestServer() *Server {
-	st := store.NewStore([]string{"ban"}, 9500, 3, 1, true)
+	st := store.NewStore(store.Options{SupportedTypes: []string{"ban"}, ShardSize: 9500, MinIPv4Shards: 3, MinIPv6Shards: 1, AggregateCIDR: true})
 	st.ProcessStream(true, &crowdsec.StreamResponse{
 		New: []crowdsec.Decision{
 			{ID: 1, Type: "ban", Value: "10.0.0.1"},
@@ -144,6 +144,10 @@ func TestMetricsEndpoint(t *testing.T) {
 		"cs_edl_entries_ipv6 1",
 		"cs_edl_shards_ipv4 3",
 		"cs_edl_shards_ipv6 1",
+		"cs_edl_shard_capacity_ipv4 0",
+		"cs_edl_shard_capacity_ipv6 0",
+		"cs_edl_overflow_entries_ipv4 0",
+		"cs_edl_overflow_entries_ipv6 0",
 		"cs_edl_sync_success_total 1",
 		"cs_edl_sync_failure_total 0",
 		"cs_edl_last_sync_timestamp_seconds",

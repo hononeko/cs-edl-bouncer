@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewStoreInitialEmptyShards(t *testing.T) {
-	s := NewStore([]string{"ban"}, 9500, 3, 1, true)
+	s := NewStore(Options{SupportedTypes: []string{"ban"}, ShardSize: 9500, MinIPv4Shards: 3, MinIPv6Shards: 1, AggregateCIDR: true})
 
 	expectedShards := []string{
 		"ipv4-0.txt",
@@ -48,7 +48,7 @@ func TestNewStoreInitialEmptyShards(t *testing.T) {
 }
 
 func TestProcessStreamDecisionsAndShards(t *testing.T) {
-	s := NewStore([]string{"ban"}, 2, 3, 1, true)
+	s := NewStore(Options{SupportedTypes: []string{"ban"}, ShardSize: 2, MinIPv4Shards: 3, MinIPv6Shards: 1, AggregateCIDR: true})
 
 	resp := &crowdsec.StreamResponse{
 		New: []crowdsec.Decision{
@@ -135,7 +135,7 @@ func TestProcessStreamDecisionsAndShards(t *testing.T) {
 
 func TestShardingOverflow(t *testing.T) {
 	// Shard size 2, min shards 1
-	s := NewStore([]string{"ban"}, 2, 1, 1, true)
+	s := NewStore(Options{SupportedTypes: []string{"ban"}, ShardSize: 2, MinIPv4Shards: 1, MinIPv6Shards: 1, AggregateCIDR: true})
 
 	var newDecisions []crowdsec.Decision
 	for i := 1; i <= 5; i++ {
@@ -174,7 +174,7 @@ func TestShardingOverflow(t *testing.T) {
 }
 
 func TestNonAggregateMode(t *testing.T) {
-	s := NewStore([]string{"ban"}, 9500, 1, 1, false)
+	s := NewStore(Options{SupportedTypes: []string{"ban"}, ShardSize: 9500, MinIPv4Shards: 1, MinIPv6Shards: 1, AggregateCIDR: false})
 
 	resp := &crowdsec.StreamResponse{
 		New: []crowdsec.Decision{
@@ -192,7 +192,7 @@ func TestNonAggregateMode(t *testing.T) {
 }
 
 func TestSyncFailure(t *testing.T) {
-	s := NewStore(nil, 9500, 1, 1, true)
+	s := NewStore(Options{ShardSize: 9500, MinIPv4Shards: 1, MinIPv6Shards: 1, AggregateCIDR: true})
 	s.RecordSyncFailure()
 	s.RecordSyncFailure()
 	m := s.GetMetrics()
@@ -202,7 +202,7 @@ func TestSyncFailure(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	s := NewStore([]string{"ban"}, 100, 3, 1, true)
+	s := NewStore(Options{SupportedTypes: []string{"ban"}, ShardSize: 100, MinIPv4Shards: 3, MinIPv6Shards: 1, AggregateCIDR: true})
 	var wg sync.WaitGroup
 
 	for i := 0; i < 10; i++ {
@@ -225,5 +225,120 @@ func TestConcurrentAccess(t *testing.T) {
 	m := s.GetMetrics()
 	if m.RawDecisions != 500 {
 		t.Errorf("expected 500 raw decisions, got %d", m.RawDecisions)
+	}
+}
+
+func capTestStore(aggregate bool) *Store {
+	return NewStore(Options{
+		SupportedTypes: []string{"ban"},
+		ShardSize:      2,
+		MinIPv4Shards:  1,
+		MaxIPv4Shards:  1,
+		MinIPv6Shards:  1,
+		AggregateCIDR:  aggregate,
+		OriginPriority: []string{"cscli", "crowdsec", "CAPI"},
+	})
+}
+
+func TestShardCapKeepsHighestPriorityOrigins(t *testing.T) {
+	s := capTestStore(true)
+
+	s.ProcessStream(true, &crowdsec.StreamResponse{New: []crowdsec.Decision{
+		{ID: 1, Origin: "CAPI", Type: "ban", Value: "10.0.0.1"},
+		{ID: 2, Origin: "crowdsec", Type: "ban", Value: "10.0.0.5"},
+		{ID: 3, Origin: "unknown-origin", Type: "ban", Value: "10.0.0.3"},
+		{ID: 4, Origin: "cscli", Type: "ban", Value: "10.0.0.9"},
+	}})
+
+	m := s.GetMetrics()
+	if m.IPv4Entries != 4 {
+		t.Errorf("expected 4 IPv4 entries before the cap, got %d", m.IPv4Entries)
+	}
+	if m.IPv4Shards != 1 {
+		t.Errorf("expected shard count capped at 1, got %d", m.IPv4Shards)
+	}
+	if m.IPv4Capacity != 2 || m.IPv4OverflowEntries != 2 {
+		t.Errorf("expected capacity 2 and overflow 2, got %d and %d", m.IPv4Capacity, m.IPv4OverflowEntries)
+	}
+
+	shard, _ := s.GetShard("ipv4-0.txt")
+	expected := "# CrowdSec EDL shard (count: 2)\n10.0.0.5\n10.0.0.9\n"
+	if string(shard) != expected {
+		t.Errorf("expected ipv4-0.txt:\n%s\ngot:\n%s", expected, string(shard))
+	}
+	if _, ok := s.GetShard("ipv4-1.txt"); ok {
+		t.Errorf("expected no shard beyond the cap")
+	}
+
+	// Combined lists stay complete.
+	combined, _ := s.GetShard("ipv4.txt")
+	if !strings.Contains(string(combined), "(count: 4)") {
+		t.Errorf("expected uncapped ipv4.txt, got:\n%s", string(combined))
+	}
+
+	// Overflow clears once decisions fit again.
+	s.ProcessStream(false, &crowdsec.StreamResponse{Deleted: []crowdsec.Decision{
+		{ID: 1, Value: "10.0.0.1"},
+		{ID: 3, Value: "10.0.0.3"},
+	}})
+	if m = s.GetMetrics(); m.IPv4OverflowEntries != 0 {
+		t.Errorf("expected no overflow after deletions, got %d", m.IPv4OverflowEntries)
+	}
+}
+
+func TestShardCapRanksAggregatedEntriesByBestOrigin(t *testing.T) {
+	s := capTestStore(true)
+
+	s.ProcessStream(true, &crowdsec.StreamResponse{New: []crowdsec.Decision{
+		// 10.1.0.0/24 + 10.1.1.0/24 merge into 10.1.0.0/23, ranked by its cscli member.
+		{ID: 1, Origin: "CAPI", Type: "ban", Value: "10.1.0.0/24"},
+		{ID: 2, Origin: "cscli", Type: "ban", Value: "10.1.1.0/24"},
+		{ID: 3, Origin: "CAPI", Type: "ban", Value: "10.2.0.1"},
+		{ID: 4, Origin: "CAPI", Type: "ban", Value: "10.3.0.0/16"},
+	}})
+
+	// Ties within CAPI go to the broader /16 over the /32.
+	shard, _ := s.GetShard("ipv4-0.txt")
+	expected := "# CrowdSec EDL shard (count: 2)\n10.1.0.0/23\n10.3.0.0/16\n"
+	if string(shard) != expected {
+		t.Errorf("expected ipv4-0.txt:\n%s\ngot:\n%s", expected, string(shard))
+	}
+	if m := s.GetMetrics(); m.IPv4OverflowEntries != 1 {
+		t.Errorf("expected overflow 1, got %d", m.IPv4OverflowEntries)
+	}
+}
+
+func TestShardCapNonAggregateMode(t *testing.T) {
+	s := capTestStore(false)
+
+	s.ProcessStream(true, &crowdsec.StreamResponse{New: []crowdsec.Decision{
+		{ID: 1, Origin: "CAPI", Type: "ban", Value: "10.0.0.0/24"},
+		{ID: 2, Origin: "CAPI", Type: "ban", Value: "10.0.0.1"},
+		{ID: 3, Origin: "crowdsec", Type: "ban", Value: "10.0.0.2"},
+		// A prefix with several decisions takes its best origin.
+		{ID: 4, Origin: "CAPI", Type: "ban", Value: "10.0.0.3"},
+		{ID: 5, Origin: "cscli", Type: "ban", Value: "10.0.0.3"},
+	}})
+
+	shard, _ := s.GetShard("ipv4-0.txt")
+	expected := "# CrowdSec EDL shard (count: 2)\n10.0.0.2\n10.0.0.3\n"
+	if string(shard) != expected {
+		t.Errorf("expected ipv4-0.txt:\n%s\ngot:\n%s", expected, string(shard))
+	}
+	if m := s.GetMetrics(); m.IPv4OverflowEntries != 2 {
+		t.Errorf("expected overflow 2, got %d", m.IPv4OverflowEntries)
+	}
+}
+
+func TestShardCapBelowMinUsesMin(t *testing.T) {
+	s := NewStore(Options{ShardSize: 1, MinIPv4Shards: 2, MaxIPv4Shards: 1, MinIPv6Shards: 1, AggregateCIDR: true})
+	s.ProcessStream(true, &crowdsec.StreamResponse{New: []crowdsec.Decision{
+		{ID: 1, Type: "ban", Value: "10.0.0.1"},
+		{ID: 2, Type: "ban", Value: "10.0.0.3"},
+		{ID: 3, Type: "ban", Value: "10.0.0.5"},
+	}})
+	m := s.GetMetrics()
+	if m.IPv4Shards != 2 || m.IPv4Capacity != 2 || m.IPv4OverflowEntries != 1 {
+		t.Errorf("expected 2 shards, capacity 2, overflow 1, got %d, %d, %d", m.IPv4Shards, m.IPv4Capacity, m.IPv4OverflowEntries)
 	}
 }

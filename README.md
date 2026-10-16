@@ -21,6 +21,9 @@ It connects to the CrowdSec Local API (LAPI) decisions stream and serves pre-ren
 - **Deterministic Sharding:**
   - Slices large blocklists into shards of configurable size (default `9500` entries) to prevent firewall table limit exhaustion and memory spikes.
   - Guarantees minimum shard counts (default 3 IPv4 shards: `ipv4-0.txt`, `ipv4-1.txt`, `ipv4-2.txt`; 1 IPv6 shard: `ipv6-0.txt`) pre-populated on startup with zero-count headers, ensuring firewall pollers never receive `404 Not Found`.
+- **Shard Caps with Origin Priority:**
+  - Optionally caps the number of shard files (`EDL_MAX_IPV4_SHARDS`, `EDL_MAX_IPV6_SHARDS`), so a growing blocklist never spills into a file your firewall isn't subscribed to.
+  - When the entries don't fit, the lowest-priority ones are left out of the shards (community blocklist entries first, manual and local bans last) and reported in the `cs_edl_overflow_entries_*` metrics.
 - **Drop-in Blocklist-Mirror Compatibility:**
   - Supports `/security/blocklist.txt` (with optional `?ipv4only` or `?ipv6only` query parameters) for direct drop-in replacement of `crowdsecurity/blocklist-mirror`.
 - **Prometheus Metrics:**
@@ -57,7 +60,24 @@ It connects to the CrowdSec Local API (LAPI) decisions stream and serves pre-ren
 | `EDL_SHARD_SIZE` | `9500` | Maximum number of IP/CIDR entries per shard. |
 | `EDL_MIN_IPV4_SHARDS` | `3` | Minimum number of IPv4 shards pre-rendered (`ipv4-0.txt` to `ipv4-(N-1).txt`). |
 | `EDL_MIN_IPV6_SHARDS` | `1` | Minimum number of IPv6 shards pre-rendered (`ipv6-0.txt` to `ipv6-(N-1).txt`). |
+| `EDL_MAX_IPV4_SHARDS` | `0` | Maximum number of IPv4 shards; `0` means unlimited. Must be `0` or at least `EDL_MIN_IPV4_SHARDS`. See [Shard Caps](#shard-caps). |
+| `EDL_MAX_IPV6_SHARDS` | `0` | Maximum number of IPv6 shards; `0` means unlimited. Must be `0` or at least `EDL_MIN_IPV6_SHARDS`. |
 | `EDL_AGGREGATE_CIDR` | `true` | When `true`, enables CIDR supernet aggregation and sub-prefix suppression. |
+| `EDL_ORIGIN_PRIORITY` | `cscli,cscli-import,console,crowdsec,lists,CAPI` | Decision origins from most to least important, used to choose which entries to keep when shards are capped. Unlisted origins rank last. Case-insensitive. |
+
+### Shard Caps
+
+Firewalls subscribe to a fixed set of shard URLs. Without a cap, a blocklist that grows past `EDL_MIN_IPV4_SHARDS × EDL_SHARD_SIZE` entries spills into a new shard (e.g. `ipv4-3.txt`) that nothing is subscribed to, and those addresses are silently not blocked.
+
+Set `EDL_MAX_IPV4_SHARDS` to the number of shards your firewall subscribes to. When the aggregated entries exceed `EDL_MAX_IPV4_SHARDS × EDL_SHARD_SIZE`, the bouncer:
+
+1. Ranks each entry by the most important origin among the decisions it covers, using `EDL_ORIGIN_PRIORITY`. An aggregated range that contains a single `cscli` ban ranks as `cscli`.
+2. Keeps the highest-ranked entries. Ties go to broader prefixes, since they block more addresses per entry, then to lower addresses.
+3. Reports the number of entries left out in `cs_edl_overflow_entries_ipv4` and logs a warning on every sync while over capacity.
+
+The cap applies only to shard files. The combined lists (`ipv4.txt`, `ipv6.txt`, `all.txt`, `/security/blocklist.txt`) always contain every entry.
+
+To be warned before entries are dropped, alert on `cs_edl_entries_ipv4 / cs_edl_shard_capacity_ipv4` and on `cs_edl_overflow_entries_ipv4 > 0`.
 
 ---
 
@@ -88,6 +108,7 @@ services:
       - EDL_SHARD_SIZE=9500
       - EDL_MIN_IPV4_SHARDS=3
       - EDL_MIN_IPV6_SHARDS=1
+      - EDL_MAX_IPV4_SHARDS=3
       - EDL_AGGREGATE_CIDR=true
 ```
 
@@ -126,6 +147,22 @@ cs_edl_shards_ipv4 3
 # HELP cs_edl_shards_ipv6 Number of IPv6 shards generated
 # TYPE cs_edl_shards_ipv6 gauge
 cs_edl_shards_ipv6 1
+
+# HELP cs_edl_shard_capacity_ipv4 Maximum IPv4 entries across all shards (0 = unlimited)
+# TYPE cs_edl_shard_capacity_ipv4 gauge
+cs_edl_shard_capacity_ipv4 28500
+
+# HELP cs_edl_shard_capacity_ipv6 Maximum IPv6 entries across all shards (0 = unlimited)
+# TYPE cs_edl_shard_capacity_ipv6 gauge
+cs_edl_shard_capacity_ipv6 0
+
+# HELP cs_edl_overflow_entries_ipv4 IPv4 entries left out of the shards because of the shard cap
+# TYPE cs_edl_overflow_entries_ipv4 gauge
+cs_edl_overflow_entries_ipv4 0
+
+# HELP cs_edl_overflow_entries_ipv6 IPv6 entries left out of the shards because of the shard cap
+# TYPE cs_edl_overflow_entries_ipv6 gauge
+cs_edl_overflow_entries_ipv6 0
 
 # HELP cs_edl_sync_success_total Total successful LAPI stream syncs
 # TYPE cs_edl_sync_success_total counter

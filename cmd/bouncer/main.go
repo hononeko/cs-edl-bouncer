@@ -31,13 +31,16 @@ func main() {
 }
 
 func run(ctx context.Context, cfg *config.Config) error {
-	st := store.NewStore(
-		cfg.DecisionTypes,
-		cfg.ShardSize,
-		cfg.MinIPv4Shards,
-		cfg.MinIPv6Shards,
-		cfg.AggregateCIDR,
-	)
+	st := store.NewStore(store.Options{
+		SupportedTypes: cfg.DecisionTypes,
+		ShardSize:      cfg.ShardSize,
+		MinIPv4Shards:  cfg.MinIPv4Shards,
+		MinIPv6Shards:  cfg.MinIPv6Shards,
+		MaxIPv4Shards:  cfg.MaxIPv4Shards,
+		MaxIPv6Shards:  cfg.MaxIPv6Shards,
+		AggregateCIDR:  cfg.AggregateCIDR,
+		OriginPriority: cfg.OriginPriority,
+	})
 
 	client := crowdsec.NewClient(cfg.CrowdSecURL, cfg.APIKey, cfg.Origins, nil)
 	srv := server.New(st)
@@ -103,6 +106,10 @@ func syncLoop(ctx context.Context, client *crowdsec.Client, st *store.Store, int
 			m := st.GetMetrics()
 			log.Printf("INFO: CrowdSec stream sync successful: %d raw decisions, %d IPv4 (%d shards), %d IPv6 (%d shards)",
 				m.RawDecisions, m.IPv4Entries, m.IPv4Shards, m.IPv6Entries, m.IPv6Shards)
+			if m.IPv4OverflowEntries > 0 || m.IPv6OverflowEntries > 0 {
+				log.Printf("WARN: shard capacity exceeded, lowest-priority entries left out of shards: %d IPv4 (capacity %d), %d IPv6 (capacity %d)",
+					m.IPv4OverflowEntries, m.IPv4Capacity, m.IPv6OverflowEntries, m.IPv6Capacity)
+			}
 			startup = false
 			waitDuration = interval
 		}
