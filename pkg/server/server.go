@@ -37,7 +37,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /healthz", textHandler("ok\n"))
-	s.mux.HandleFunc("GET /readyz", textHandler("ready\n"))
+	s.mux.HandleFunc("GET /readyz", s.handleReadyz)
 	s.mux.HandleFunc("GET /{$}", textHandler("ok\n"))
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
 	s.mux.HandleFunc("GET /lists/{shard}", s.handleListShard)
@@ -50,6 +50,16 @@ func textHandler(body string) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(body))
 	}
+}
+
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if !s.store.Ready() {
+		w.Header().Set(headerContentType, contentTypeTextPlain)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("waiting for first LAPI sync\n"))
+		return
+	}
+	textHandler("ready\n")(w, r)
 }
 
 func (s *Server) serveShard(w http.ResponseWriter, r *http.Request, name string) {

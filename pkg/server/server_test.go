@@ -54,6 +54,24 @@ func TestHealthEndpoints(t *testing.T) {
 	}
 }
 
+func TestReadyzWaitsForFirstSync(t *testing.T) {
+	st := store.NewStore(store.Options{ShardSize: 9500, MinIPv4Shards: 3, MinIPv6Shards: 1, AggregateCIDR: true})
+	handler := New(st).Handler()
+
+	assertGET(t, handler, "/readyz", http.StatusServiceUnavailable, nil, nil)
+	assertGET(t, handler, "/healthz", http.StatusOK, nil, nil)
+
+	st.RecordSyncFailure()
+	assertGET(t, handler, "/readyz", http.StatusServiceUnavailable, nil, nil)
+
+	st.ProcessStream(true, &crowdsec.StreamResponse{})
+	assertGET(t, handler, "/readyz", http.StatusOK, []string{"ready"}, nil)
+
+	// A later failure keeps serving the last good lists.
+	st.RecordSyncFailure()
+	assertGET(t, handler, "/readyz", http.StatusOK, nil, nil)
+}
+
 func TestListsEndpoint(t *testing.T) {
 	srv := setupTestServer()
 	handler := srv.Handler()

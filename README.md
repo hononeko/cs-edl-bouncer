@@ -38,7 +38,7 @@ It connects to the CrowdSec Local API (LAPI) decisions stream and serves pre-ren
 | Endpoint | Description |
 |---|---|
 | `GET /healthz` | Liveness health probe (`200 OK`) |
-| `GET /readyz` | Readiness health probe (`200 OK`) |
+| `GET /readyz` | Readiness health probe: `503` until the first successful LAPI sync, then `200 OK`. Keeps a rolling update from replacing a working instance with one serving empty lists. |
 | `GET /metrics` | Prometheus text exposition format metrics |
 | `GET /lists/{shard}` | Serves individual shards (e.g. `ipv4-0.txt`, `ipv4-1.txt`, `ipv6-0.txt`) and combined lists (`ipv4.txt`, `ipv6.txt`, `all.txt`) |
 | `GET /security/blocklist.txt` | Drop-in blocklist-mirror compatible endpoint (`?ipv4only`, `?ipv6only`, or `all.txt`) |
