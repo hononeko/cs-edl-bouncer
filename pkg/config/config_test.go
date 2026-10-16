@@ -54,6 +54,12 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.AggregateCIDR {
 		t.Errorf("expected default AggregateCIDR true, got false")
 	}
+	if cfg.MaxIPv4Shards != 0 || cfg.MaxIPv6Shards != 0 {
+		t.Errorf("expected unlimited max shards by default, got %d, %d", cfg.MaxIPv4Shards, cfg.MaxIPv6Shards)
+	}
+	if !reflect.DeepEqual(cfg.OriginPriority, DefaultOriginPriority) {
+		t.Errorf("expected default OriginPriority %v, got %v", DefaultOriginPriority, cfg.OriginPriority)
+	}
 }
 
 func TestAPIKeyFallback(t *testing.T) {
@@ -90,6 +96,9 @@ func TestCustomConfiguration(t *testing.T) {
 		"EDL_MIN_IPV4_SHARDS":      "5",
 		"EDL_MIN_IPV6_SHARDS":      "2",
 		"EDL_AGGREGATE_CIDR":       "false",
+		"EDL_MAX_IPV4_SHARDS":      "6",
+		"EDL_MAX_IPV6_SHARDS":      "2",
+		"EDL_ORIGIN_PRIORITY":      "cscli, crowdsec CAPI",
 	}
 
 	cfg, err := LoadFromEnv(mockLookup(env))
@@ -126,6 +135,13 @@ func TestCustomConfiguration(t *testing.T) {
 	if cfg.AggregateCIDR {
 		t.Errorf("expected AggregateCIDR false, got true")
 	}
+	if cfg.MaxIPv4Shards != 6 || cfg.MaxIPv6Shards != 2 {
+		t.Errorf("expected max shards 6 and 2, got %d, %d", cfg.MaxIPv4Shards, cfg.MaxIPv6Shards)
+	}
+	expectedPriority := []string{"cscli", "crowdsec", "CAPI"}
+	if !reflect.DeepEqual(cfg.OriginPriority, expectedPriority) {
+		t.Errorf("expected OriginPriority %v, got %v", expectedPriority, cfg.OriginPriority)
+	}
 }
 
 func TestUpdateIntervalSecondsInteger(t *testing.T) {
@@ -155,6 +171,10 @@ func TestInvalidConfigurations(t *testing.T) {
 		{"zero min ipv4 shards", "EDL_MIN_IPV4_SHARDS", "0"},
 		{"invalid min ipv6 shards text", "EDL_MIN_IPV6_SHARDS", "xyz"},
 		{"zero min ipv6 shards", "EDL_MIN_IPV6_SHARDS", "0"},
+		{"invalid max ipv4 shards text", "EDL_MAX_IPV4_SHARDS", "xyz"},
+		{"negative max ipv4 shards", "EDL_MAX_IPV4_SHARDS", "-1"},
+		{"max ipv4 shards below default min", "EDL_MAX_IPV4_SHARDS", "2"},
+		{"invalid max ipv6 shards text", "EDL_MAX_IPV6_SHARDS", "xyz"},
 		{"invalid aggregate bool", "EDL_AGGREGATE_CIDR", "notabool"},
 	}
 

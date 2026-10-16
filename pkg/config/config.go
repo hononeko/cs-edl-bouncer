@@ -20,8 +20,15 @@ type Config struct {
 	ShardSize      int
 	MinIPv4Shards  int
 	MinIPv6Shards  int
+	MaxIPv4Shards  int
+	MaxIPv6Shards  int
 	AggregateCIDR  bool
+	OriginPriority []string
 }
+
+// DefaultOriginPriority keeps manual and locally detected bans when shards overflow,
+// and drops community blocklist (CAPI) entries first.
+var DefaultOriginPriority = []string{"cscli", "cscli-import", "console", "crowdsec", "lists", "CAPI"}
 
 // Load reads configuration from process environment variables.
 func Load() (*Config, error) {
@@ -39,6 +46,7 @@ func LoadFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 		MinIPv4Shards:  3,
 		MinIPv6Shards:  1,
 		AggregateCIDR:  true,
+		OriginPriority: DefaultOriginPriority,
 	}
 
 	if val, ok := lookupTrimmed(lookup, "CROWDSEC_URL"); ok {
@@ -79,8 +87,21 @@ func LoadFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 		return nil, err
 	}
 
+	if err := parseMaxShards(lookup, "EDL_MAX_IPV4_SHARDS", "EDL_MIN_IPV4_SHARDS", cfg.MinIPv4Shards, &cfg.MaxIPv4Shards); err != nil {
+		return nil, err
+	}
+	if err := parseMaxShards(lookup, "EDL_MAX_IPV6_SHARDS", "EDL_MIN_IPV6_SHARDS", cfg.MinIPv6Shards, &cfg.MaxIPv6Shards); err != nil {
+		return nil, err
+	}
+
 	if err := parseBoolEnv(lookup, "EDL_AGGREGATE_CIDR", &cfg.AggregateCIDR); err != nil {
 		return nil, err
+	}
+
+	if val, ok := lookupTrimmed(lookup, "EDL_ORIGIN_PRIORITY"); ok {
+		if origins := splitList(val, false); len(origins) > 0 {
+			cfg.OriginPriority = origins
+		}
 	}
 
 	return cfg, nil
@@ -148,6 +169,17 @@ func parseIntMin(lookup func(string) (string, bool), key string, minVal int, des
 		return fmt.Errorf("invalid %s %q: must be integer >= %d", key, val, minVal)
 	}
 	*dest = v
+	return nil
+}
+
+// parseMaxShards reads an optional shard cap; 0 means unlimited, otherwise it must not be below the minimum.
+func parseMaxShards(lookup func(string) (string, bool), key, minKey string, minShards int, dest *int) error {
+	if err := parseIntMin(lookup, key, 0, dest); err != nil {
+		return err
+	}
+	if *dest != 0 && *dest < minShards {
+		return fmt.Errorf("invalid %s %d: must be 0 (unlimited) or >= %s (%d)", key, *dest, minKey, minShards)
+	}
 	return nil
 }
 

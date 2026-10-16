@@ -11,6 +11,9 @@ import (
 	"github.com/hononeko/cs-edl-bouncer/pkg/crowdsec"
 )
 
+// unranked is the rank of origins missing from the origin priority list; they are dropped first.
+const unranked = int(^uint(0) >> 1)
+
 // Metrics contains operational telemetry for Prometheus exposition.
 type Metrics struct {
 	RawDecisions          int64
@@ -18,40 +21,78 @@ type Metrics struct {
 	IPv6Entries           int64
 	IPv4Shards            int64
 	IPv6Shards            int64
+	IPv4Capacity          int64
+	IPv6Capacity          int64
+	IPv4OverflowEntries   int64
+	IPv6OverflowEntries   int64
 	SyncSuccessTotal      int64
 	SyncFailureTotal      int64
 	LastSyncTimestampSecs int64
 }
 
+// Options configures decision filtering, aggregation and sharding.
+type Options struct {
+	// SupportedTypes lists the decision types to include; empty includes all types.
+	SupportedTypes []string
+	ShardSize      int
+	MinIPv4Shards  int
+	MinIPv6Shards  int
+	// MaxIPv4Shards and MaxIPv6Shards cap the number of shard files; 0 means unlimited.
+	// Entries that do not fit are dropped from the shards, lowest origin priority first.
+	MaxIPv4Shards int
+	MaxIPv6Shards int
+	AggregateCIDR bool
+	// OriginPriority lists decision origins from most to least important when shards
+	// overflow. Origins not listed rank below all listed ones.
+	OriginPriority []string
+}
+
+// family holds the per-address-family sharding settings.
+type family struct {
+	name      string
+	minShards int
+	maxShards int
+}
+
 // Store maintains thread-safe decision state and pre-rendered EDL shard text.
 type Store struct {
-	mu             sync.RWMutex
-	decisions      map[netip.Prefix]map[int64]struct{}
+	mu sync.RWMutex
+	// decisions maps each prefix to its decision IDs and their origins.
+	decisions      map[netip.Prefix]map[int64]string
 	renderedShards map[string][]byte
 	metrics        Metrics
 
 	supportedTypes map[string]struct{}
+	originRanks    map[string]int
 	shardSize      int
-	minIPv4Shards  int
-	minIPv6Shards  int
+	ipv4           family
+	ipv6           family
 	aggregateCIDR  bool
 }
 
 // NewStore initializes a new decision store and pre-renders initial empty shards.
-func NewStore(supportedTypes []string, shardSize, minIPv4Shards, minIPv6Shards int, aggregateCIDR bool) *Store {
-	stMap := make(map[string]struct{}, len(supportedTypes))
-	for _, t := range supportedTypes {
-		stMap[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
+func NewStore(opts Options) *Store {
+	stMap := make(map[string]struct{}, len(opts.SupportedTypes))
+	for _, t := range opts.SupportedTypes {
+		stMap[normalizeKey(t)] = struct{}{}
+	}
+
+	ranks := make(map[string]int, len(opts.OriginPriority))
+	for i, o := range opts.OriginPriority {
+		if _, seen := ranks[normalizeKey(o)]; !seen {
+			ranks[normalizeKey(o)] = i
+		}
 	}
 
 	s := &Store{
-		decisions:      make(map[netip.Prefix]map[int64]struct{}),
+		decisions:      make(map[netip.Prefix]map[int64]string),
 		renderedShards: make(map[string][]byte),
 		supportedTypes: stMap,
-		shardSize:      shardSize,
-		minIPv4Shards:  minIPv4Shards,
-		minIPv6Shards:  minIPv6Shards,
-		aggregateCIDR:  aggregateCIDR,
+		originRanks:    ranks,
+		shardSize:      opts.ShardSize,
+		ipv4:           family{name: "ipv4", minShards: opts.MinIPv4Shards, maxShards: opts.MaxIPv4Shards},
+		ipv6:           family{name: "ipv6", minShards: opts.MinIPv6Shards, maxShards: opts.MaxIPv6Shards},
+		aggregateCIDR:  opts.AggregateCIDR,
 	}
 
 	// Immediately pre-populate empty shards and combined lists
@@ -65,7 +106,7 @@ func (s *Store) ProcessStream(startup bool, streamResp *crowdsec.StreamResponse)
 	defer s.mu.Unlock()
 
 	if startup {
-		s.decisions = make(map[netip.Prefix]map[int64]struct{})
+		s.decisions = make(map[netip.Prefix]map[int64]string)
 	}
 
 	if streamResp != nil {
@@ -109,7 +150,7 @@ func (s *Store) GetMetrics() Metrics {
 
 func (s *Store) addDecisionLocked(d crowdsec.Decision) {
 	if len(s.supportedTypes) > 0 {
-		if _, ok := s.supportedTypes[strings.ToLower(strings.TrimSpace(d.Type))]; !ok {
+		if _, ok := s.supportedTypes[normalizeKey(d.Type)]; !ok {
 			return
 		}
 	}
@@ -121,10 +162,10 @@ func (s *Store) addDecisionLocked(d crowdsec.Decision) {
 
 	idSet, exists := s.decisions[p]
 	if !exists {
-		idSet = make(map[int64]struct{})
+		idSet = make(map[int64]string)
 		s.decisions[p] = idSet
 	}
-	idSet[d.ID] = struct{}{}
+	idSet[d.ID] = d.Origin
 }
 
 func (s *Store) deleteDecisionLocked(d crowdsec.Decision) {
@@ -154,13 +195,27 @@ func (s *Store) deleteDecisionLocked(d crowdsec.Decision) {
 	}
 }
 
+func (s *Store) originRank(origin string) int {
+	if r, ok := s.originRanks[normalizeKey(origin)]; ok {
+		return r
+	}
+	return unranked
+}
+
 func (s *Store) recomputeLocked() {
 	var rawCount int64
 	var ipv4Prefixes []netip.Prefix
 	var ipv6Prefixes []netip.Prefix
+	ranks := make(map[netip.Prefix]int, len(s.decisions))
 
 	for p, idSet := range s.decisions {
 		rawCount += int64(len(idSet))
+		rank := unranked
+		for _, origin := range idSet {
+			rank = min(rank, s.originRank(origin))
+		}
+		ranks[p] = rank
+
 		if p.Addr().Is4() {
 			ipv4Prefixes = append(ipv4Prefixes, p)
 		} else if p.Addr().Is6() {
@@ -168,29 +223,56 @@ func (s *Store) recomputeLocked() {
 		}
 	}
 
-	ipv4Entries := cidr.FormatEntries(ipv4Prefixes, s.aggregateCIDR)
-	ipv6Entries := cidr.FormatEntries(ipv6Prefixes, s.aggregateCIDR)
-
 	s.renderedShards = make(map[string][]byte)
 
-	numIPv4Shards := s.renderShardsLocked("ipv4", ipv4Entries, s.minIPv4Shards)
-	numIPv6Shards := s.renderShardsLocked("ipv6", ipv6Entries, s.minIPv6Shards)
+	ipv4 := s.renderFamilyLocked(s.ipv4, ipv4Prefixes, ranks)
+	ipv6 := s.renderFamilyLocked(s.ipv6, ipv6Prefixes, ranks)
 
-	// Combined lists
-	s.renderedShards["ipv4.txt"] = renderList("IPv4", ipv4Entries)
-	s.renderedShards["ipv6.txt"] = renderList("IPv6", ipv6Entries)
+	// Combined lists are never capped; only shard files are.
+	s.renderedShards["ipv4.txt"] = renderList("IPv4", ipv4.entries)
+	s.renderedShards["ipv6.txt"] = renderList("IPv6", ipv6.entries)
 
-	allEntries := make([]string, 0, len(ipv4Entries)+len(ipv6Entries))
-	allEntries = append(allEntries, ipv4Entries...)
-	allEntries = append(allEntries, ipv6Entries...)
+	allEntries := make([]string, 0, len(ipv4.entries)+len(ipv6.entries))
+	allEntries = append(allEntries, ipv4.entries...)
+	allEntries = append(allEntries, ipv6.entries...)
 	s.renderedShards["all.txt"] = renderList("All", allEntries)
 
 	// Update metrics
 	s.metrics.RawDecisions = rawCount
-	s.metrics.IPv4Entries = int64(len(ipv4Entries))
-	s.metrics.IPv6Entries = int64(len(ipv6Entries))
-	s.metrics.IPv4Shards = int64(numIPv4Shards)
-	s.metrics.IPv6Shards = int64(numIPv6Shards)
+	s.metrics.IPv4Entries = int64(len(ipv4.entries))
+	s.metrics.IPv6Entries = int64(len(ipv6.entries))
+	s.metrics.IPv4Shards = int64(ipv4.shards)
+	s.metrics.IPv6Shards = int64(ipv6.shards)
+	s.metrics.IPv4Capacity = int64(ipv4.capacity)
+	s.metrics.IPv6Capacity = int64(ipv6.capacity)
+	s.metrics.IPv4OverflowEntries = int64(ipv4.overflow)
+	s.metrics.IPv6OverflowEntries = int64(ipv6.overflow)
+}
+
+// familyResult describes the rendered lists of one address family.
+type familyResult struct {
+	entries  []string // all formatted entries, uncapped
+	shards   int
+	capacity int // maximum entries across all shards; 0 when unlimited
+	overflow int // entries left out of the shards because of the cap
+}
+
+func (s *Store) renderFamilyLocked(f family, prefixes []netip.Prefix, ranks map[netip.Prefix]int) familyResult {
+	normalized := cidr.Normalize(prefixes, s.aggregateCIDR)
+	res := familyResult{entries: cidr.FormatPrefixes(normalized)}
+
+	sharded := res.entries
+	if f.maxShards > 0 {
+		res.capacity = max(f.maxShards, f.minShards) * s.shardSize
+		if len(normalized) > res.capacity {
+			kept := keepHighestPriority(normalized, prefixes, ranks, s.aggregateCIDR, res.capacity)
+			sharded = cidr.FormatPrefixes(kept)
+			res.overflow = len(normalized) - len(kept)
+		}
+	}
+
+	res.shards = s.renderShardsLocked(f.name, sharded, f.minShards)
+	return res
 }
 
 func (s *Store) renderShardsLocked(prefix string, entries []string, minShards int) int {
@@ -211,4 +293,8 @@ func renderList(name string, entries []string) []byte {
 		b.WriteByte('\n')
 	}
 	return []byte(b.String())
+}
+
+func normalizeKey(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
 }

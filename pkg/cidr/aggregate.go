@@ -139,18 +139,26 @@ func FormatPrefix(p netip.Prefix) string {
 	return p.String()
 }
 
-// FormatEntries processes raw prefixes (aggregating or deduplicating based on the flag)
-// and returns formatted string entries.
-func FormatEntries(prefixes []netip.Prefix, aggregate bool) []string {
-	var processed []netip.Prefix
+// Normalize aggregates or deduplicates raw prefixes, based on the flag, into a
+// deterministically sorted list.
+func Normalize(prefixes []netip.Prefix, aggregate bool) []netip.Prefix {
 	if aggregate {
-		processed = Aggregate(prefixes)
-	} else {
-		processed = Deduplicate(prefixes)
+		return Aggregate(prefixes)
 	}
-	entries := make([]string, len(processed))
-	for i, p := range processed {
+	return Deduplicate(prefixes)
+}
+
+// FormatPrefixes formats each prefix with FormatPrefix.
+func FormatPrefixes(prefixes []netip.Prefix) []string {
+	entries := make([]string, len(prefixes))
+	for i, p := range prefixes {
 		entries[i] = FormatPrefix(p)
 	}
 	return entries
+}
+
+// FormatEntries processes raw prefixes (aggregating or deduplicating based on the flag)
+// and returns formatted string entries.
+func FormatEntries(prefixes []netip.Prefix, aggregate bool) []string {
+	return FormatPrefixes(Normalize(prefixes, aggregate))
 }
