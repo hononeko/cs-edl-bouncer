@@ -1,8 +1,10 @@
 # cs-edl-bouncer
 
-[![Main Validation](https://github.com/hononeko/cs-edl-bouncer/actions/workflows/main.yml/badge.svg)](https://github.com/hononeko/cs-edl-bouncer/actions/workflows/main.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hononeko/cs-edl-bouncer)](https://goreportcard.com/report/github.com/hononeko/cs-edl-bouncer)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Release](https://img.shields.io/github/v/release/hononeko/cs-edl-bouncer)](https://github.com/hononeko/cs-edl-bouncer/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/hononeko/cs-edl-bouncer/main.yml)](https://github.com/hononeko/cs-edl-bouncer/actions/workflows/main.yml)
+[![Docker Image](https://img.shields.io/badge/Image-hononeko/cs--edl--bouncer-blue?logo=docker)](https://github.com/hononeko/cs-edl-bouncer/pkgs/container/cs-edl-bouncer)
+[![Linted with golangci-lint](https://img.shields.io/badge/linted%20with-golangci--lint-00ADD8?logo=go&logoColor=white)](https://golangci-lint.run)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **`cs-edl-bouncer`** is a high-performance, lightweight, zero-dependency CrowdSec External Dynamic List (EDL) bouncer written in Go.
 

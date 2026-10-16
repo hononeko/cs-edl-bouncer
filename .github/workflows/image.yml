@@ -54,7 +54,6 @@ jobs:
           image: smoke:${{ matrix.arch }}
           port: "8080"
           path: /healthz
-          endpoint: "/healthz"
           status: "200"
           env: |
             CROWDSEC_API_KEY=smoke-key
