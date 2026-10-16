@@ -8,66 +8,20 @@ import (
 
 func TestParsePrefix(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected string
-		wantErr  bool
+		name, input, expected string
+		wantErr               bool
 	}{
-		{
-			name:     "single IPv4",
-			input:    "192.168.1.1",
-			expected: "192.168.1.1/32",
-		},
-		{
-			name:     "single IPv6",
-			input:    "2001:db8::1",
-			expected: "2001:db8::1/128",
-		},
-		{
-			name:     "IPv4 CIDR",
-			input:    "10.0.0.0/8",
-			expected: "10.0.0.0/8",
-		},
-		{
-			name:     "IPv4 CIDR unmasked",
-			input:    "10.1.2.3/8",
-			expected: "10.0.0.0/8",
-		},
-		{
-			name:     "IPv6 CIDR",
-			input:    "2001:db8::/32",
-			expected: "2001:db8::/32",
-		},
-		{
-			name:     "IPv4 mapped IPv6 single",
-			input:    "::ffff:192.0.2.1",
-			expected: "192.0.2.1/32",
-		},
-		{
-			name:     "IPv4 mapped IPv6 CIDR",
-			input:    "::ffff:192.0.2.0/120",
-			expected: "192.0.2.0/24",
-		},
-		{
-			name:     "whitespace trimming",
-			input:    "   172.16.0.0/12   ",
-			expected: "172.16.0.0/12",
-		},
-		{
-			name:    "empty string",
-			input:   "   ",
-			wantErr: true,
-		},
-		{
-			name:    "invalid IP",
-			input:   "not-an-ip",
-			wantErr: true,
-		},
-		{
-			name:    "invalid CIDR bits",
-			input:   "1.2.3.4/33",
-			wantErr: true,
-		},
+		{"single IPv4", "192.168.1.1", "192.168.1.1/32", false},
+		{"single IPv6", "2001:db8::1", "2001:db8::1/128", false},
+		{"IPv4 CIDR", "10.0.0.0/8", "10.0.0.0/8", false},
+		{"IPv4 CIDR unmasked", "10.1.2.3/8", "10.0.0.0/8", false},
+		{"IPv6 CIDR", "2001:db8::/32", "2001:db8::/32", false},
+		{"IPv4 mapped IPv6 single", "::ffff:192.0.2.1", "192.0.2.1/32", false},
+		{"IPv4 mapped IPv6 CIDR", "::ffff:192.0.2.0/120", "192.0.2.0/24", false},
+		{"whitespace trimming", "   172.16.0.0/12   ", "172.16.0.0/12", false},
+		{"empty string", "   ", "", true},
+		{"invalid IP", "not-an-ip", "", true},
+		{"invalid CIDR bits", "1.2.3.4/33", "", true},
 	}
 
 	for _, tc := range tests {

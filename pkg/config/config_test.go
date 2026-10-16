@@ -144,55 +144,24 @@ func TestUpdateIntervalSecondsInteger(t *testing.T) {
 
 func TestInvalidConfigurations(t *testing.T) {
 	tests := []struct {
-		name string
-		env  map[string]string
+		name, key, val string
 	}{
-		{
-			name: "invalid update interval text",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "CROWDSEC_UPDATE_INTERVAL": "invalid"},
-		},
-		{
-			name: "negative update interval",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "CROWDSEC_UPDATE_INTERVAL": "-5s"},
-		},
-		{
-			name: "zero update interval",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "CROWDSEC_UPDATE_INTERVAL": "0s"},
-		},
-		{
-			name: "invalid shard size text",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "EDL_SHARD_SIZE": "abc"},
-		},
-		{
-			name: "zero shard size",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "EDL_SHARD_SIZE": "0"},
-		},
-		{
-			name: "invalid min ipv4 shards text",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "EDL_MIN_IPV4_SHARDS": "xyz"},
-		},
-		{
-			name: "zero min ipv4 shards",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "EDL_MIN_IPV4_SHARDS": "0"},
-		},
-		{
-			name: "invalid min ipv6 shards text",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "EDL_MIN_IPV6_SHARDS": "xyz"},
-		},
-		{
-			name: "zero min ipv6 shards",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "EDL_MIN_IPV6_SHARDS": "0"},
-		},
-		{
-			name: "invalid aggregate bool",
-			env:  map[string]string{"CROWDSEC_API_KEY": "k", "EDL_AGGREGATE_CIDR": "notabool"},
-		},
+		{"invalid update interval text", "CROWDSEC_UPDATE_INTERVAL", "invalid"},
+		{"negative update interval", "CROWDSEC_UPDATE_INTERVAL", "-5s"},
+		{"zero update interval", "CROWDSEC_UPDATE_INTERVAL", "0s"},
+		{"invalid shard size text", "EDL_SHARD_SIZE", "abc"},
+		{"zero shard size", "EDL_SHARD_SIZE", "0"},
+		{"invalid min ipv4 shards text", "EDL_MIN_IPV4_SHARDS", "xyz"},
+		{"zero min ipv4 shards", "EDL_MIN_IPV4_SHARDS", "0"},
+		{"invalid min ipv6 shards text", "EDL_MIN_IPV6_SHARDS", "xyz"},
+		{"zero min ipv6 shards", "EDL_MIN_IPV6_SHARDS", "0"},
+		{"invalid aggregate bool", "EDL_AGGREGATE_CIDR", "notabool"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := LoadFromEnv(mockLookup(tc.env))
-			if err == nil {
+			env := map[string]string{"CROWDSEC_API_KEY": "k", tc.key: tc.val}
+			if _, err := LoadFromEnv(mockLookup(env)); err == nil {
 				t.Fatalf("expected error for case %q, got nil", tc.name)
 			}
 		})
