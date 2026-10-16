@@ -30,6 +30,7 @@ jobs:
     uses: ./.github/workflows/image.yml
     with:
       push: ${{ needs.version.outputs.version_type != 'none' }}
+      version: ${{ needs.version.outputs.version }}
     permissions:
       contents: read
       packages: write

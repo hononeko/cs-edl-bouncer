@@ -9,6 +9,10 @@ on:
         description: Push each architecture's image to GHCR by digest and upload the digests as artifacts
         type: boolean
         default: false
+      version:
+        description: Version baked into the binary (the next stable version for main builds); "dev" when empty
+        type: string
+        default: ""
 
 env:
   REGISTRY: ghcr.io
@@ -46,6 +50,7 @@ jobs:
           push: false
           tags: smoke:${{ matrix.arch }}
           cache-from: type=gha,scope=image-${{ matrix.arch }}
+          build-args: VERSION=${{ inputs.version || 'dev' }}
           cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
 
       - name: Smoke test
@@ -77,6 +82,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=image-${{ matrix.arch }}
+          build-args: VERSION=${{ inputs.version || 'dev' }}
           provenance: mode=max
           sbom: true
 

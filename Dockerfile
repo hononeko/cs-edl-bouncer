@@ -10,8 +10,10 @@ WORKDIR /app
 COPY go.mod ./
 RUN go mod download
 COPY . .
+# Release version reported in the LAPI User-Agent; image.yml passes it for main builds
+ARG VERSION=dev
 # Build static binary, ensuring CGO is disabled
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-w -s" -o /out/bouncer ./cmd/bouncer
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-w -s -X github.com/hononeko/cs-edl-bouncer/pkg/version.Version=${VERSION}" -o /out/bouncer ./cmd/bouncer
 
 # -- Stage 3: Final Image (minimal static distroless)
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab

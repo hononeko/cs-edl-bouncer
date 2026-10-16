@@ -14,6 +14,7 @@ import (
 	"github.com/hononeko/cs-edl-bouncer/pkg/crowdsec"
 	"github.com/hononeko/cs-edl-bouncer/pkg/server"
 	"github.com/hononeko/cs-edl-bouncer/pkg/store"
+	"github.com/hononeko/cs-edl-bouncer/pkg/version"
 )
 
 func main() {
@@ -53,7 +54,7 @@ func run(ctx context.Context, cfg *config.Config) error {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		log.Printf("INFO: starting EDL bouncer HTTP server on %s", cfg.ListenAddr)
+		log.Printf("INFO: starting cs-edl-bouncer %s HTTP server on %s", version.Version, cfg.ListenAddr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
