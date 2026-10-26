@@ -183,4 +183,3 @@ func TestRunCLI(t *testing.T) {
 		}
 	})
 }
-
