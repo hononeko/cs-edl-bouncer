@@ -29,7 +29,6 @@ type Config struct {
 // LoadConfigFromEnv reads UniFi reconciliation settings using a lookup function.
 func LoadConfigFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 	cfg := &Config{
-		Host:               "https://10.10.1.1",
 		Site:               "default",
 		SkipTLSVerify:      true,
 		ZoneSrc:            []string{"External"},
@@ -52,6 +51,9 @@ func LoadConfigFromEnv(lookup func(string) (string, bool)) (*Config, error) {
 	}
 	if cfg.APIKey == "" {
 		return nil, errors.New("UNIFI_API_KEY is required")
+	}
+	if cfg.Host == "" {
+		return nil, errors.New("UNIFI_HOST is required")
 	}
 
 	if val, ok := lookupTrimmed(lookup, "UNIFI_SITE"); ok {
