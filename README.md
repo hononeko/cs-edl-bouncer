@@ -201,7 +201,7 @@ cs-edl-bouncer unifi-sync
 
 | Variable | Default | Description |
 |---|---|---|
-| `UNIFI_HOST` | `https://10.10.1.1` | UniFi gateway controller URL. |
+| `UNIFI_HOST` | *(Required)* | UniFi gateway controller URL (e.g. `https://192.168.1.1`). |
 | `UNIFI_API_KEY` | *(Required)* | UniFi API Key created in Gateway Settings > System > Advanced > API Keys. |
 | `UNIFI_SITE` | `default` | UniFi site name. |
 | `UNIFI_SKIP_TLS_VERIFY` | `true` | Skip TLS certificate verification for local gateway addresses. |

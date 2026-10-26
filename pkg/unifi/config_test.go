@@ -8,6 +8,7 @@ import (
 
 func TestLoadConfigDefaults(t *testing.T) {
 	env := map[string]string{
+		"UNIFI_HOST":    "https://unifi.lan",
 		"UNIFI_API_KEY": "test-key-123",
 	}
 
@@ -19,9 +20,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Host != "https://10.10.1.1" {
-		t.Errorf("expected default host https://10.10.1.1, got %q", cfg.Host)
-	}
 	if cfg.Site != "default" {
 		t.Errorf("expected default site default, got %q", cfg.Site)
 	}
@@ -67,6 +65,23 @@ func TestMissingAPIKey(t *testing.T) {
 	}
 	if err.Error() != "UNIFI_API_KEY is required" {
 		t.Errorf("expected error message 'UNIFI_API_KEY is required', got %q", err.Error())
+	}
+}
+
+func TestMissingHost(t *testing.T) {
+	env := map[string]string{
+		"UNIFI_API_KEY": "test-key-123",
+	}
+
+	_, err := LoadConfigFromEnv(func(k string) (string, bool) {
+		v, ok := env[k]
+		return v, ok
+	})
+	if err == nil {
+		t.Fatal("expected error when UNIFI_HOST is missing, got nil")
+	}
+	if err.Error() != "UNIFI_HOST is required" {
+		t.Errorf("expected error message 'UNIFI_HOST is required', got %q", err.Error())
 	}
 }
 
@@ -182,8 +197,10 @@ func TestInvalidConfigurations(t *testing.T) {
 }
 
 func TestLoadConfigWithOSEnv(t *testing.T) {
+	_ = os.Setenv("UNIFI_HOST", "https://unifi.lan")
 	_ = os.Setenv("UNIFI_API_KEY", "env-test-key")
 	defer func() {
+		_ = os.Unsetenv("UNIFI_HOST")
 		_ = os.Unsetenv("UNIFI_API_KEY")
 	}()
 
