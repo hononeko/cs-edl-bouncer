@@ -42,6 +42,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref }}
 
       - name: Set up Docker Buildx
@@ -60,7 +61,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
 
       - name: Smoke test
-        uses: hononeko/actions/smoke-test@0db95ecb039dad2e450e9e0d0f18364bb10c2256 # v1.4.8
+        uses: hononeko/actions/smoke-test@v1
         with:
           image: smoke:${{ matrix.arch }}
           port: "8080"
