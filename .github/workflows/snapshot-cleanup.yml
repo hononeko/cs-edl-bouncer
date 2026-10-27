@@ -26,7 +26,7 @@ jobs:
       packages: write
     steps:
       - name: Prune
-        uses: hononeko/actions/prune-snapshots@0db95ecb039dad2e450e9e0d0f18364bb10c2256 # v1.4.8
+        uses: hononeko/actions/prune-snapshots@v1
         with:
           package: cs-edl-bouncer
           pr-number: ${{ inputs.pr-number || github.event.pull_request.number }}

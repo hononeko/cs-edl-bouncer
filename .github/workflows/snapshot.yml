@@ -56,7 +56,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish multi-arch snapshot
-        uses: hononeko/actions/publish-image@0db95ecb039dad2e450e9e0d0f18364bb10c2256 # v1.4.8
+        uses: hononeko/actions/publish-image@v1
         with:
           image: ghcr.io/${{ github.repository_owner }}/cs-edl-bouncer
           tags: |
